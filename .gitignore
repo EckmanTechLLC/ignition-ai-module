@@ -1,0 +1,32 @@
+# Gradle
+.gradle/
+build/
+out/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.project
+.classpath
+.settings/
+
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Web build artifacts
+web/packages/*/dist/
+web/packages/*/.awcache/
+web/build/
+
+# Module artifacts
+*.modl
+*.modl.jar
+
+# OS
+.DS_Store
+Thumbs.db

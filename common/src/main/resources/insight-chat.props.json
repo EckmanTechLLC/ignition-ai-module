@@ -1,0 +1,68 @@
+{
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+        "conversationId": {
+            "type": ["string", "null"],
+            "description": "ID of existing conversation to load (UUID format). Leave empty to start a new conversation. Bind to a parameter or view custom property to resume conversations.",
+            "default": ""
+        },
+        "userName": {
+            "type": ["string", "null"],
+            "description": "User name for conversation ownership and filtering. Bind to session user (e.g., {session.props.auth.user.userName}) or leave empty for anonymous. Used to filter conversation history by user.",
+            "default": ""
+        },
+        "projectName": {
+            "type": ["string", "null"],
+            "description": "REQUIRED: Name of the Ignition project to analyze. Bind to session project (e.g., {session.props.projectName} or {session.project}). The AI uses this to locate and read project files, views, scripts, and resources.",
+            "default": ""
+        },
+        "showHistory": {
+            "type": "boolean",
+            "description": "Show conversation history or just current exchange",
+            "default": true
+        },
+        "showTimestamps": {
+            "type": "boolean",
+            "description": "Show timestamps on messages",
+            "default": true
+        },
+        "showToolDetails": {
+            "type": "boolean",
+            "description": "Show collapsible tool execution details",
+            "default": true
+        },
+        "showTokenUsage": {
+            "type": "boolean",
+            "description": "Show token usage per message and in footer",
+            "default": true
+        },
+        "maxHeight": {
+            "type": "string",
+            "description": "Maximum height of the chat container",
+            "default": "600px"
+        },
+        "theme": {
+            "type": "string",
+            "description": "Component theme",
+            "enum": ["light", "dark", "auto"],
+            "default": "light"
+        },
+        "readOnly": {
+            "type": "boolean",
+            "description": "Read-only mode (no input)",
+            "default": false
+        },
+        "placeholder": {
+            "type": "string",
+            "description": "Placeholder text for input field",
+            "default": "Ask about your Ignition system..."
+        },
+        "style": {
+            "$ref": "urn:ignition-schema:schemas/style-properties.schema.json",
+            "default": {
+                "classes": ""
+            }
+        }
+    }
+}
