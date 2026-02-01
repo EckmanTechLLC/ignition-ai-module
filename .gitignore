@@ -30,3 +30,16 @@ web/build/
 # OS
 .DS_Store
 Thumbs.db
+
+# Test scripts (may contain API keys)
+test_*.py
+test_*.sh
+*.test.py
+*.test.sh
+
+# Sensitive files
+.env
+.env.*
+*.key
+*secret*
+*credentials*
