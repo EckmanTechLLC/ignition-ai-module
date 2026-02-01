@@ -37,11 +37,6 @@
             "description": "Show token usage per message and in footer",
             "default": true
         },
-        "maxHeight": {
-            "type": "string",
-            "description": "Maximum height of the chat container",
-            "default": "600px"
-        },
         "theme": {
             "type": "string",
             "description": "Component theme",

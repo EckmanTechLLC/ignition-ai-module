@@ -39,12 +39,13 @@ public class ToolRegistry {
     private void discoverAndRegisterTools() {
         logger.info("Discovering and registering IAI tools...");
 
-        // Register File System Tools (11 tools)
+        // Register File System Tools (12 tools)
         registerTool(new com.iai.ignition.gateway.tools.filesystem.GetProjectStructureTool(gatewayContext, settings));
         registerTool(new com.iai.ignition.gateway.tools.filesystem.GetFileMetadataTool(gatewayContext, settings));
         registerTool(new com.iai.ignition.gateway.tools.filesystem.ReadFileContentTool(gatewayContext, settings));
         registerTool(new com.iai.ignition.gateway.tools.filesystem.ListPerspectiveViewsTool(gatewayContext, settings));
         registerTool(new com.iai.ignition.gateway.tools.filesystem.ReadPerspectiveViewTool(gatewayContext, settings));
+        registerTool(new com.iai.ignition.gateway.tools.filesystem.ReadVisionWindowTool(gatewayContext, settings.getGatewayDataPath()));
         registerTool(new com.iai.ignition.gateway.tools.filesystem.ListScriptModulesTool(gatewayContext, settings));
         registerTool(new com.iai.ignition.gateway.tools.filesystem.ReadScriptModuleTool(gatewayContext, settings));
         registerTool(new com.iai.ignition.gateway.tools.filesystem.ListNamedQueriesTool(gatewayContext, settings));

@@ -85,7 +85,6 @@ class InsightChatMeta {
             showTimestamps: tree.readBoolean("showTimestamps", true),
             showToolDetails: tree.readBoolean("showToolDetails", true),
             showTokenUsage: tree.readBoolean("showTokenUsage", true),
-            maxHeight: tree.readString("maxHeight", "600px"),
             theme: tree.readString("theme", "light"),
             readOnly: tree.readBoolean("readOnly", false),
             placeholder: tree.readString("placeholder", "Ask about your Ignition system...")
@@ -510,17 +509,17 @@ class InsightChatComponent extends Component {
         const { messages, inputValue, loading, error } = this.state;
         const isDark = props.theme === 'dark';
 
-        const containerStyle = {
-            display: 'flex',
-            flexDirection: 'column',
-            height: props.maxHeight,
-            maxHeight: props.maxHeight,
+        // Apply theme styles to container, but let Perspective control sizing/position
+        const themeStyles = {
             border: `1px solid ${isDark ? '#444' : '#ddd'}`,
             borderRadius: '8px',
             backgroundColor: isDark ? '#1a1a1a' : '#ffffff',
             color: isDark ? '#e0e0e0' : '#000000',
-            overflow: 'hidden',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+            // Internal flex layout for chat components
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden'
         };
 
         const headerStyle = {
@@ -668,10 +667,14 @@ class InsightChatComponent extends Component {
             ])
         ]);
 
-        // Main container
+        // Main container - emit() provides Perspective positioning/layout, merge with theme styles
+        const emitProps = emit();
         return React.createElement(
             'div',
-            Object.assign({}, emit(), { style: containerStyle }),
+            {
+                ...emitProps,
+                style: { ...emitProps.style, ...themeStyles }
+            },
             [header, messagesArea, inputArea]
         );
     }

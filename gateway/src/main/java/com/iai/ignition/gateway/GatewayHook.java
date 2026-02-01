@@ -117,7 +117,7 @@ public class GatewayHook extends AbstractGatewayModuleHook {
             settingsRecord.setId(0L);
             settingsRecord.setApiKey("");
             settingsRecord.setModelName("claude-sonnet-4-5-20250929");
-            settingsRecord.setSystemPrompt(getDefaultSystemPrompt());
+            settingsRecord.setSystemPrompt("");  // Empty = use hardcoded default with anti-hallucination rules
             settingsRecord.setDatabaseConnection("");
             settingsRecord.setEnableDatabaseTools(true);
             settingsRecord.setMaxToolResultSizeKB(100);
@@ -145,6 +145,10 @@ public class GatewayHook extends AbstractGatewayModuleHook {
             "and never modify configurations, tags, or code.\n\n" +
             "## Available Tools\n" +
             "You have access to tools for reading project resources, querying tags and alarms, and analyzing system data.\n\n" +
+            "## Using Tools\n" +
+            "Use the available tools to retrieve actual system data. When users ask about system information, " +
+            "always use tools to get current, accurate data rather than making assumptions. This includes " +
+            "follow-up questions - verify data with tools each time.\n\n" +
             "## Response Style\n" +
             "Be clear, concise, and technical. Cite specific file paths and line numbers when referencing code.";
     }

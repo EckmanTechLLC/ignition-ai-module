@@ -394,8 +394,30 @@ public final class ConversationEndpoints {
     /**
      * Build system prompt with context variables injected.
      */
+    /**
+     * Get the default system prompt.
+     */
+    private static String getDefaultSystemPrompt() {
+        return "You are Ignition AI, an AI assistant integrated into Inductive Automation's Ignition SCADA platform.\n\n" +
+            "## Your Role\n" +
+            "You help users understand, explore, and explain existing Ignition systems. You provide read-only analysis " +
+            "and never modify configurations, tags, or code.\n\n" +
+            "## Available Tools\n" +
+            "You have access to tools for reading project resources, querying tags and alarms, and analyzing system data.\n\n" +
+            "## Using Tools\n" +
+            "Use the available tools to retrieve actual system data. When users ask about system information, " +
+            "always use tools to get current, accurate data rather than making assumptions. This includes " +
+            "follow-up questions - verify data with tools each time.\n\n" +
+            "## Response Style\n" +
+            "Be clear, concise, and technical. Cite specific file paths and line numbers when referencing code.";
+    }
+
     private static String buildSystemPrompt(IAISettings settings, Conversation conversation, ToolRegistry toolRegistry) {
+        // Use custom prompt from settings, or fall back to hardcoded default if empty
         String prompt = settings.getSystemPrompt();
+        if (prompt == null || prompt.trim().isEmpty()) {
+            prompt = getDefaultSystemPrompt();
+        }
 
         // Inject variables
         prompt = prompt.replace("{PROJECT_NAME}", conversation.getProjectName() != null ? conversation.getProjectName() : "Unknown");

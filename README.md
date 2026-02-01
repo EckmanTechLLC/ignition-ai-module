@@ -1,237 +1,210 @@
-# Ignition 8.1 Module Template
+# Ignition AI Module
 
-A properly structured Ignition 8.1 module template based on the official SDK examples master branch. This template includes a working "Hello World" Perspective component and provides a solid foundation for building custom Ignition modules.
+An AI-powered assistant for exploring and understanding Ignition SCADA systems through natural language queries. Integrates Claude AI with comprehensive tools for reading project resources, querying tags/alarms, and analyzing system data.
 
-## Key Features
+## Features
 
-- **SDK Version:** 8.1.16 (compatible with Ignition 8.1.8+)
-- **Gradle Build System:** Uses Gradle 7.4.2 with the ignition-module-tools plugin v0.1.1
-- **Java 17:** Modern Java toolchain support
-- **Simple JavaScript Approach:** No complex TypeScript/Webpack build - uses plain JavaScript for quick development
-- **Working Hello World Component:** Fully functional Perspective component ready to customize
-- **Multi-Scope Structure:** Properly organized common, gateway, and designer modules
+- **Natural Language Queries** - Ask questions about your Ignition system in plain English
+- **Insight Chat Component** - Perspective component for interactive AI conversations
+- **Comprehensive Tools** - Access to project files, tags, alarms, databases, and gateway resources
+- **Conversation History** - Persistent conversations stored in database with export capabilities
+- **Read-Only Safety** - Analyzes and explains systems without making modifications
+- **Multi-Project Support** - Works across different Ignition projects
 
 ## Requirements
 
-- **JDK 17** - Required for building the module
-- **Ignition 8.1.8+** - For testing the module
-- **Git** - For version control (optional)
+- **Ignition 8.1.8+** - Gateway with Perspective module
+- **JDK 17** - For building the module
+- **Claude API Key** - From Anthropic (https://www.anthropic.com)
+- **Database** - SQL database for conversation storage (optional but recommended)
 
-No additional tools needed! The Gradle wrapper handles all build dependencies automatically.
+## Installation
 
-## Quick Start
+### 1. Enable Developer Mode (Unsigned Modules)
 
-### 1. Build the Module
+Since this module is unsigned, you must enable unsigned modules in Ignition:
 
-```bash
-cd /home/etl/projects/ignition-module-template-8.1
-./gradlew build
-```
-
-The module file will be created at: `build/HelloWorldModule.unsigned.modl`
-
-### 2. Install in Ignition
-
-1. Open your Ignition Gateway webpage (typically `http://localhost:8088`)
-2. Navigate to **Config → Modules**
-3. Scroll down and click **Install or Upgrade a Module**
-4. Upload `build/HelloWorldModule.unsigned.modl`
-5. Restart the gateway when prompted
-
-### 3. Use the Component
-
-1. Open the Designer
-2. Create a new Perspective view
-3. Find "Hello World" in the component palette under the "Hello World" category
-4. Drag it onto your view
-5. Customize the properties:
-   - `text`: The message to display
-   - `fontSize`: Font size in pixels
-   - `color`: Text color
-
-## Project Structure
-
-```
-ignition-module-template-8.1/
-├── build.gradle.kts              # Root build configuration
-├── settings.gradle.kts           # Project structure and repositories
-├── gradle.properties             # Gradle settings
-├── gradle/
-│   ├── libs.versions.toml        # SDK dependency versions
-│   └── wrapper/                  # Gradle wrapper files
-├── common/                       # Shared code between scopes
-│   ├── build.gradle.kts
-│   └── src/main/
-│       ├── java/
-│       │   └── com/example/ignition/common/
-│       │       ├── HelloWorldModule.java       # Module metadata
-│       │       └── HelloWorldComponent.java    # Component descriptor
-│       └── resources/
-│           └── helloworld.props.json           # Property schema
-├── gateway/                      # Gateway scope code
-│   ├── build.gradle.kts
-│   └── src/main/
-│       ├── java/
-│       │   └── com/example/ignition/gateway/
-│       │       └── GatewayHook.java            # Gateway lifecycle hook
-│       └── resources/mounted/js/
-│           └── helloworld.js                   # Browser component (plain JS)
-├── designer/                     # Designer scope code
-│   ├── build.gradle.kts
-│   └── src/main/java/
-│       └── com/example/ignition/designer/
-│           └── DesignerHook.java               # Designer lifecycle hook
-└── license.html                  # Module license
-```
-
-## Customizing the Template
-
-### Change Module Identity
-
-Edit `build.gradle.kts`:
-
-```kotlin
-allprojects {
-    version = "1.0.0-SNAPSHOT"
-    group = "com.yourcompany.ignition"  // Change this
-}
-
-ignitionModule {
-    fileName.set("YourModuleName")      // Change this
-    name.set("Your Module Name")        // Change this
-    id.set("com.yourcompany.ignition.yourmodule")  // Change this
-    moduleDescription.set("Your module description")  // Change this
-    // ...
-}
-```
-
-### Change Package Names
-
-1. Update Java package structure in `common/`, `gateway/`, and `designer/` directories
-2. Update package names in all `.java` files
-3. Update the hook class names in `build.gradle.kts`:
-
-```kotlin
-hooks.putAll(
-    mapOf(
-        "com.yourcompany.ignition.gateway.GatewayHook" to "G",
-        "com.yourcompany.ignition.designer.DesignerHook" to "D"
-    )
-)
-```
-
-### Change Component Identity
-
-Edit `common/src/main/java/com/example/ignition/common/HelloWorldComponent.java`:
-
-```java
-public static final String COMPONENT_ID = "com.yourcompany.ignition.yourcomponent";
-```
-
-Also update the same ID in `gateway/src/main/resources/mounted/js/helloworld.js`:
-
-```javascript
-getComponentType() {
-    return "com.yourcompany.ignition.yourcomponent";
-}
-```
-
-### Add More Components
-
-1. Create a new ComponentDescriptor in the `common` module
-2. Create a new `.js` file in `gateway/src/main/resources/mounted/js/`
-3. Register the component in both `GatewayHook.java` and `DesignerHook.java`
-4. Add the new JavaScript resource to `HelloWorldModule.BROWSER_RESOURCES`
-
-## 8.1 vs 8.3 Differences
-
-This template is specifically for Ignition 8.1. Key differences from 8.3:
-
-| Feature | 8.1 (This Template) | 8.3 |
-|---------|---------------------|-----|
-| **SDK Version** | 8.1.16 | 8.3.x |
-| **Gradle Plugin** | io.ia.sdk.modl v0.1.1 | io.ia.sdk.modl v0.3.x+ |
-| **Java Version** | 17 | 17+ |
-| **Perspective API** | 2.1.x | 2.3.x+ |
-| **Project Accessors** | Disabled (name compatibility) | Enabled by default |
-
-### Why Use 8.1 Template?
-
-- Your Ignition installation is 8.1.x
-- You need to support older Ignition versions
-- You want maximum compatibility with existing 8.1 deployments
-
-## Development Tips
-
-### Enable Unsigned Modules
-
-For development, allow unsigned modules in Ignition:
-
-1. Edit `<ignition>/data/ignition.conf`
-2. Add to the `wrapper.java.additional` section:
+1. Stop the Ignition Gateway
+2. Edit `<ignition-install>/data/ignition.conf`
+3. Add to the `wrapper.java.additional` section:
    ```
    wrapper.java.additional.N=-Dignition.allowunsignedmodules=true
    ```
-   (Replace N with the next available number)
-3. Restart Ignition
+   (Replace `N` with the next available number, e.g., if the last line is `wrapper.java.additional.15`, use `16`)
+4. Restart the Ignition Gateway
 
-### Clean Build
+### 2. Install the Module
 
-```bash
-./gradlew clean build
+1. Build the module:
+   ```bash
+   ./gradlew clean build -x test
+   ```
+   Module file: `build/ignition-ai-module-unsigned.modl`
+
+2. Open Ignition Gateway webpage (http://localhost:8088)
+3. Navigate to **Config → System → Modules**
+4. Click **Install or Upgrade a Module**
+5. Upload `build/ignition-ai-module-unsigned.modl`
+6. Restart the gateway when prompted
+
+## Configuration
+
+### Gateway Settings
+
+Navigate to **Config → Ignition AI → Settings** in the Gateway webpage.
+
+#### Claude Configuration
+- **API Key** (required) - Your Anthropic Claude API key
+- **Model Name** - Default: `claude-sonnet-4-5-20250929`
+- **System Prompt** - Leave empty to use default (recommended), or customize for specific behavior
+
+#### Database Configuration
+- **Database Connection** (required) - Database for storing conversations
+  - Create tables using the SQL schemas in `gateway/src/main/java/com/iai/ignition/gateway/database/`
+  - Tables: `iai_conversations`, `iai_messages`
+- **Enable Database Tools** - Allow AI to query databases (default: true)
+
+#### Tool Limits
+- **Max Tool Result Size (KB)** - Truncate large tool results (default: 100)
+- **Max Tag History Records** - Limit tag history queries (default: 1000)
+- **Max Alarm History Records** - Limit alarm history queries (default: 1000)
+- **Query Timeout (seconds)** - Database query timeout (default: 30)
+
+#### Conversation Settings
+- **Max Conversation History Messages** - Message limit per conversation (default: 50)
+
+#### Gateway Settings
+- **Gateway Data Path** - Auto-detected, usually `/usr/local/bin/ignition/data` or similar
+
+### Database Setup
+
+Create the required tables in your chosen database:
+
+```sql
+-- See gateway/src/main/java/com/iai/ignition/gateway/database/ConversationSchemaManager.java
+-- Tables created automatically when database connection is configured
 ```
 
-### View Build Info
+## Usage
 
-```bash
-./gradlew tasks --all
-```
+### Add Insight Chat Component
 
-### Deep Clean (removes all caches)
+1. Open Perspective Designer
+2. Create or open a view
+3. Find **Insight Chat** in the component palette under "Ignition AI"
+4. Drag onto your view
+5. Configure properties:
+   - `projectName` - Bind to `{session.props.projectName}` (REQUIRED)
+   - `userName` - Bind to `{session.props.auth.user.userName}` or leave empty
+   - `conversationId` - Leave empty for new conversation, or bind to resume
+   - `showHistory`, `showTimestamps`, `showToolDetails`, `showTokenUsage` - UI options
+   - `theme` - "light", "dark", or "auto"
+   - `readOnly` - Disable input for display-only mode
+   - `placeholder` - Custom input prompt text
 
-```bash
-./gradlew deepClean
-```
+### Example Questions
 
-## Common Build Tasks
+- "What Perspective views exist in this project?"
+- "Show me the current value of CompressorStation/Compressor1/Discharge_Pressure"
+- "What are the last 10 alarm events?"
+- "List all database connections"
+- "What modules are installed on this gateway?"
+- "Search for scripts that reference 'pump' in their code"
 
-- `./gradlew build` - Build the module
-- `./gradlew clean` - Clean build artifacts
-- `./gradlew assemble` - Assemble the module without running tests
-- `./gradlew tasks` - List available tasks
+### Conversation Export
+
+Export conversations as Markdown or JSON via the component or directly from the database.
+
+## Available Tools
+
+The AI has access to these tool categories:
+
+**File System** (12 tools)
+- Project structure, file metadata, Perspective views, Vision windows, scripts, named queries, search
+
+**Tags** (3 tools)
+- List tags, get configuration, query history
+
+**Alarms** (2 tools)
+- Query history, get configuration
+
+**Databases** (6 tools, if enabled)
+- List databases/tables, describe schema, query data, execute named queries
+
+**Search** (1 tool)
+- Project-wide resource search
+
+## Known Limitations
+
+- **Unsigned Module** - Requires developer mode enabled
+- **Token Limits** - Long conversations (>50 messages with heavy tool use) may degrade performance
+- **Read-Only** - Cannot modify tags, create resources, or change configurations
+- **No Code Execution** - Cannot run scripts or execute gateway functions
 
 ## Troubleshooting
 
-### Build Fails with "Cannot generate project dependency accessors"
-
-This is due to project naming with dots. Type-safe project accessors have been disabled in this template. Use `project(":name")` syntax instead of `projects.name`.
-
 ### Module Won't Load
+- Check `<ignition>/logs/wrapper.log` for errors
+- Verify unsigned modules are enabled (`-Dignition.allowunsignedmodules=true`)
+- Ensure Perspective module is installed
 
-1. Check Ignition gateway logs at `<ignition>/logs/wrapper.log`
-2. Verify the module is compatible with your Ignition version
-3. Ensure unsigned modules are enabled for development
-4. Check for conflicting module IDs
+### Component Not in Palette
+- Restart Designer
+- Check Gateway logs for registration errors
+- Verify module installed successfully
 
-### Component Doesn't Appear in Palette
+### AI Not Responding
+- Check API key in Gateway settings
+- Verify database connection configured
+- Check Gateway logs for API errors
+- Ensure `projectName` prop is bound
 
-1. Verify the component is registered in both Gateway and Designer hooks
-2. Check that the component ID matches in Java and JavaScript
-3. Restart the Designer
-4. Check Designer console for errors
+### Hallucination / Incorrect Answers
+- AI may fabricate data if tools fail or return no results
+- Start fresh conversations to avoid token limit issues
+- Report patterns to help improve system prompt
 
-## Resources
+## Development
 
-- [Ignition SDK Examples (Master Branch)](https://github.com/inductiveautomation/ignition-sdk-examples/tree/master)
-- [Ignition Module Tools](https://github.com/inductiveautomation/ignition-module-tools)
-- [Ignition SDK Documentation](https://docs.inductiveautomation.com/display/SE/Ignition+SDK+Programmers+Guide)
-- [Perspective Component API](https://docs.inductiveautomation.com/display/SE/Perspective+Component+API)
+### Build
+```bash
+./gradlew clean build -x test
+```
+
+### Project Structure
+```
+ignition-ai-module/
+├── common/          - Shared code (ComponentDescriptor, models)
+├── gateway/         - Gateway scope (tools, endpoints, database)
+├── designer/        - Designer scope (minimal)
+└── build/           - Output (.modl file)
+```
+
+### Adding Tools
+
+1. Implement `IAITool` interface
+2. Add to `gateway/src/main/java/com/iai/ignition/gateway/tools/`
+3. Register in `ToolRegistry.java`
+
+See `TODO_TOOLS.md` for planned tools.
+
+## Architecture Notes
+
+- System prompt in Gateway settings (leave empty for default)
+- Conversation history truncated to prevent token overflow
+- Tool results sanitized and size-limited
+- Component uses HTTP POST endpoints (not ModelDelegate pattern)
+
+See `TODO_ARCHITECTURE.md` for planned improvements.
 
 ## License
 
-Replace `license.html` with your actual license terms.
+MIT License - See LICENSE file
+
+## Credits
+
+Built using the Ignition SDK 8.1.16 and Claude API.
 
 ## Support
 
-This template is based on the official Ignition SDK examples from Inductive Automation.
-For Ignition-specific questions, consult the [Inductive Automation forums](https://forum.inductiveautomation.com/).
+This is an open-source project. For issues and feature requests, use the GitHub issue tracker.
