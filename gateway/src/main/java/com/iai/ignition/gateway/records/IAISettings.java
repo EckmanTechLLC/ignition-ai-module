@@ -38,6 +38,12 @@ public class IAISettings extends PersistentRecord {
     // Gateway Detection
     public static final StringField GatewayDataPath = new StringField(META, "GatewayDataPath");
 
+    // System Function Execution Settings
+    public static final BooleanField AllowSystemFunctionExecution = new BooleanField(META, "AllowSystemFunctionExecution").setDefault(false);
+    public static final StringField SystemFunctionMode = new StringField(META, "SystemFunctionMode").setDefault("READ_ONLY");
+    public static final IntField SystemFunctionTimeoutSeconds = new IntField(META, "SystemFunctionTimeoutSeconds").setDefault(30);
+    public static final IntField MaxSystemFunctionResultSizeKB = new IntField(META, "MaxSystemFunctionResultSizeKB").setDefault(100);
+
     // Categories for settings page organization
     static final Category ClaudeConfig = new Category("IAISettings.Category.Claude", 1000)
         .include(ApiKey, ModelName, SystemPrompt);
@@ -49,6 +55,8 @@ public class IAISettings extends PersistentRecord {
         .include(MaxConversationHistoryMessages);
     static final Category GatewaySettings = new Category("IAISettings.Category.Gateway", 1004)
         .include(GatewayDataPath);
+    static final Category SystemFunctionSettings = new Category("IAISettings.Category.SystemFunctions", 1005)
+        .include(AllowSystemFunctionExecution, SystemFunctionMode, SystemFunctionTimeoutSeconds, MaxSystemFunctionResultSizeKB);
 
     @Override
     public RecordMeta<?> getMeta() {
@@ -151,5 +159,37 @@ public class IAISettings extends PersistentRecord {
 
     public void setGatewayDataPath(String value) {
         setString(GatewayDataPath, value);
+    }
+
+    public Boolean getAllowSystemFunctionExecution() {
+        return getBoolean(AllowSystemFunctionExecution);
+    }
+
+    public void setAllowSystemFunctionExecution(Boolean value) {
+        setBoolean(AllowSystemFunctionExecution, value);
+    }
+
+    public String getSystemFunctionMode() {
+        return getString(SystemFunctionMode);
+    }
+
+    public void setSystemFunctionMode(String value) {
+        setString(SystemFunctionMode, value);
+    }
+
+    public Integer getSystemFunctionTimeoutSeconds() {
+        return getInt(SystemFunctionTimeoutSeconds);
+    }
+
+    public void setSystemFunctionTimeoutSeconds(Integer value) {
+        setInt(SystemFunctionTimeoutSeconds, value);
+    }
+
+    public Integer getMaxSystemFunctionResultSizeKB() {
+        return getInt(MaxSystemFunctionResultSizeKB);
+    }
+
+    public void setMaxSystemFunctionResultSizeKB(Integer value) {
+        setInt(MaxSystemFunctionResultSizeKB, value);
     }
 }

@@ -2,6 +2,9 @@ package com.iai.ignition.gateway.tools;
 
 import com.iai.ignition.common.tools.IAITool;
 import com.iai.ignition.gateway.records.IAISettings;
+import com.iai.ignition.gateway.tools.scripting.ScriptExecutor;
+import com.iai.ignition.gateway.tools.scripting.ListSystemFunctionsTool;
+import com.iai.ignition.gateway.tools.scripting.ExecuteSystemFunctionTool;
 import com.inductiveautomation.ignition.common.gson.JsonObject;
 import com.inductiveautomation.ignition.common.util.LoggerEx;
 import com.inductiveautomation.ignition.gateway.model.GatewayContext;
@@ -19,6 +22,7 @@ public class ToolRegistry {
     private final Map<String, IAITool> tools = new HashMap<>();
     private final GatewayContext gatewayContext;
     private final IAISettings settings;
+    private ScriptExecutor scriptExecutor;
 
     /**
      * Create a tool registry.
@@ -39,7 +43,7 @@ public class ToolRegistry {
     private void discoverAndRegisterTools() {
         logger.info("Discovering and registering IAI tools...");
 
-        // Register File System Tools (12 tools)
+        // Register File System Tools (13 tools)
         registerTool(new com.iai.ignition.gateway.tools.filesystem.GetProjectStructureTool(gatewayContext, settings));
         registerTool(new com.iai.ignition.gateway.tools.filesystem.GetFileMetadataTool(gatewayContext, settings));
         registerTool(new com.iai.ignition.gateway.tools.filesystem.ReadFileContentTool(gatewayContext, settings));
@@ -52,8 +56,10 @@ public class ToolRegistry {
         registerTool(new com.iai.ignition.gateway.tools.filesystem.ReadNamedQueryTool(gatewayContext, settings));
         registerTool(new com.iai.ignition.gateway.tools.filesystem.SearchProjectFilesTool(gatewayContext, settings));
         registerTool(new com.iai.ignition.gateway.tools.filesystem.FindResourceByNameTool(gatewayContext, settings));
+        registerTool(new com.iai.ignition.gateway.tools.filesystem.SearchGatewayFilesTool(gatewayContext, settings));
 
-        // Register Tag Tools (3 tools)
+        // Register Tag Tools (4 tools)
+        registerTool(new com.iai.ignition.gateway.tools.tags.ListTagProvidersTool(gatewayContext, settings));
         registerTool(new com.iai.ignition.gateway.tools.tags.ListTagsTool(gatewayContext, settings));
         registerTool(new com.iai.ignition.gateway.tools.tags.GetTagConfigTool(gatewayContext, settings));
         registerTool(new com.iai.ignition.gateway.tools.tags.QueryTagHistoryTool(gatewayContext, settings));
@@ -77,6 +83,19 @@ public class ToolRegistry {
 
         // Register Search Tools (1 tool)
         registerTool(new com.iai.ignition.gateway.tools.search.SearchProjectResourcesTool(gatewayContext, settings));
+
+        // Register Gateway Tools (1 tool)
+        registerTool(new com.iai.ignition.gateway.tools.gateway.ListProjectsTool(gatewayContext, settings));
+
+        // System function execution tools (gated by AllowSystemFunctionExecution)
+        if (settings.getAllowSystemFunctionExecution()) {
+            logger.info("System function execution is enabled (mode: " + settings.getSystemFunctionMode() + ")");
+            scriptExecutor = new ScriptExecutor(gatewayContext, settings);
+            registerTool(new ListSystemFunctionsTool(gatewayContext, settings, scriptExecutor));
+            registerTool(new ExecuteSystemFunctionTool(gatewayContext, settings, scriptExecutor));
+        } else {
+            logger.info("System function execution is disabled");
+        }
 
         logger.info("Tool registration complete. Registered " + tools.size() + " tools.");
     }

@@ -134,6 +134,9 @@ The AI has access to these tool categories:
 **Search** (1 tool)
 - Project-wide resource search
 
+**System Functions** (2 tools, if enabled)
+- List and execute any system.* function via Jython script execution (100% coverage)
+
 ## Known Limitations
 
 - **Unsigned Module** - Requires developer mode enabled

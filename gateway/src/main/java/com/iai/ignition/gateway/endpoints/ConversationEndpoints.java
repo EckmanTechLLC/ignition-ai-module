@@ -12,6 +12,7 @@ import com.iai.ignition.gateway.database.MessageDAO;
 import com.iai.ignition.gateway.llm.ClaudeAPIClient;
 import com.iai.ignition.gateway.records.IAISettings;
 import com.iai.ignition.gateway.tools.ToolRegistry;
+import com.iai.ignition.gateway.util.TokenCounter;
 import com.inductiveautomation.ignition.common.gson.Gson;
 import com.inductiveautomation.ignition.common.gson.JsonArray;
 import com.inductiveautomation.ignition.common.gson.JsonElement;
@@ -124,6 +125,14 @@ public final class ConversationEndpoints {
             String projectName = requestBody.get("projectName").getAsString();
             String message = requestBody.get("message").getAsString();
 
+            // Extract compaction settings (with defaults)
+            boolean enableAutoCompaction = requestBody.has("enableAutoCompaction")
+                ? requestBody.get("enableAutoCompaction").getAsBoolean() : true;
+            int compactionTokenThreshold = requestBody.has("compactionTokenThreshold")
+                ? requestBody.get("compactionTokenThreshold").getAsInt() : 180000;
+            int compactToRecentMessages = requestBody.has("compactToRecentMessages")
+                ? requestBody.get("compactToRecentMessages").getAsInt() : 30;
+
             // Load settings
             IAISettings settings = context.getLocalPersistenceInterface().find(IAISettings.META, 0L);
             if (settings == null) {
@@ -176,6 +185,15 @@ public final class ConversationEndpoints {
 
             MessageDAO.create(context.getDatasourceManager(), dbConnection, userMessage);
 
+            // Calculate estimated token count for user visibility
+            List<Message> allMessages = MessageDAO.listByConversation(
+                context.getDatasourceManager(),
+                dbConnection,
+                conversation.getId(),
+                settings.getMaxConversationHistoryMessages()
+            );
+            int estimatedTokens = TokenCounter.estimateTokens(allMessages);
+
             // Initialize Claude API client
             ClaudeAPIClient claudeClient = new ClaudeAPIClient(settings.getApiKey());
 
@@ -189,7 +207,10 @@ public final class ConversationEndpoints {
                 claudeClient,
                 toolRegistry,
                 conversation,
-                dbConnection
+                dbConnection,
+                enableAutoCompaction,
+                compactionTokenThreshold,
+                compactToRecentMessages
             );
 
             // Build response
@@ -199,6 +220,7 @@ public final class ConversationEndpoints {
             response.addProperty("content", assistantMessage.getContent());
             response.addProperty("inputTokens", assistantMessage.getInputTokens());
             response.addProperty("outputTokens", assistantMessage.getOutputTokens());
+            response.addProperty("estimatedTokens", estimatedTokens);
 
             // Include tool calls if any
             if (assistantMessage.getToolCalls() != null && !assistantMessage.getToolCalls().isEmpty()) {
@@ -233,21 +255,54 @@ public final class ConversationEndpoints {
         ClaudeAPIClient claudeClient,
         ToolRegistry toolRegistry,
         Conversation conversation,
-        String dbConnection
+        String dbConnection,
+        boolean enableAutoCompaction,
+        int compactionTokenThreshold,
+        int compactToRecentMessages
     ) throws Exception {
 
         // Load conversation history
-        List<Message> history = MessageDAO.listByConversation(
+        List<Message> allMessages = MessageDAO.listByConversation(
             context.getDatasourceManager(),
             dbConnection,
             conversation.getId(),
             settings.getMaxConversationHistoryMessages()
         );
 
-        // Limit history to configured max
-        int maxHistory = settings.getMaxConversationHistoryMessages();
-        if (history.size() > maxHistory) {
-            history = history.subList(history.size() - maxHistory, history.size());
+        // Check for most recent summary message to avoid reloading compacted messages
+        Message latestSummary = null;
+        int summaryIndex = -1;
+        for (int i = allMessages.size() - 1; i >= 0; i--) {
+            Message msg = allMessages.get(i);
+            if (msg.getContent() != null &&
+                msg.getContent().startsWith("[CONVERSATION SUMMARY")) {
+                latestSummary = msg;
+                summaryIndex = i;
+                logger.info("Found existing summary at message index " + i + ", using compacted history");
+                break;
+            }
+        }
+
+        // Build history: if summary exists, use [summary] + [messages after summary], else use all
+        List<Message> history;
+        if (latestSummary != null && summaryIndex < allMessages.size() - 1) {
+            // Use summary + recent messages after it
+            history = new ArrayList<>();
+            history.add(latestSummary);
+            history.addAll(allMessages.subList(summaryIndex + 1, allMessages.size()));
+            logger.info("Using compacted history: 1 summary + " + (allMessages.size() - summaryIndex - 1) + " recent messages");
+        } else if (latestSummary != null && summaryIndex == allMessages.size() - 1) {
+            // Summary is the last message (edge case)
+            history = new ArrayList<>();
+            history.add(latestSummary);
+            logger.info("Using only summary (no messages after it yet)");
+        } else {
+            // No summary, use all messages
+            history = allMessages;
+            int maxHistory = settings.getMaxConversationHistoryMessages();
+            if (history.size() > maxHistory) {
+                history = history.subList(history.size() - maxHistory, history.size());
+            }
         }
 
         // Build system prompt
@@ -263,8 +318,89 @@ public final class ConversationEndpoints {
             cleanMsg.setRole(msg.getRole());
             cleanMsg.setContent(msg.getContent());
             cleanMsg.setTimestamp(msg.getTimestamp());
+            // Copy token counts for accurate compaction threshold calculation
+            cleanMsg.setInputTokens(msg.getInputTokens());
+            cleanMsg.setOutputTokens(msg.getOutputTokens());
             // Don't copy toolCalls or toolResults - they shouldn't be in API requests
             llmMessages.add(cleanMsg);
+        }
+
+        // Calculate actual token count from stored API responses
+        int systemPromptTokens = TokenCounter.estimateSystemPromptTokens(systemPrompt);
+
+        // Sum actual token counts from previous messages (stored from Claude API responses)
+        int messageTokens = 0;
+        for (Message msg : llmMessages) {
+            if (msg.getInputTokens() != null) {
+                messageTokens += msg.getInputTokens();
+            }
+            if (msg.getOutputTokens() != null) {
+                messageTokens += msg.getOutputTokens();
+            }
+        }
+
+        int actualTotalTokens = systemPromptTokens + messageTokens;
+
+        logger.debug("Actual tokens - System: " + systemPromptTokens + " (estimated), Messages: " + messageTokens + " (from API), Total: " + actualTotalTokens);
+
+        // Automatic compaction if approaching context limit
+        int contextLimit = 200000; // Claude context limit
+
+        if (enableAutoCompaction && actualTotalTokens > compactionTokenThreshold && llmMessages.size() > compactToRecentMessages) {
+            logger.info("Triggering automatic compaction - Total tokens: " + actualTotalTokens + " (threshold: " + compactionTokenThreshold + ")");
+
+            try {
+                // Split messages: old (to summarize) vs recent (keep full)
+                List<Message> oldMessages = llmMessages.subList(0, llmMessages.size() - compactToRecentMessages);
+                List<Message> recentMessages = llmMessages.subList(llmMessages.size() - compactToRecentMessages, llmMessages.size());
+
+                logger.info("Compacting " + oldMessages.size() + " old messages, keeping " + recentMessages.size() + " recent messages");
+
+                // Generate summary of old messages
+                String summary = generateConversationSummary(claudeClient, settings, oldMessages);
+
+                // Create summary message and save to database for future use
+                Message summaryMessage = new Message();
+                summaryMessage.setId(UUID.randomUUID().toString());
+                summaryMessage.setConversationId(conversation.getId());
+                summaryMessage.setRole("user"); // Claude only accepts "user" or "assistant"
+                summaryMessage.setContent("[CONVERSATION SUMMARY - Previous " + oldMessages.size() + " messages condensed]\n\n" + summary);
+                summaryMessage.setTimestamp(System.currentTimeMillis());
+
+                // Save summary to database so it persists across requests
+                MessageDAO.create(context.getDatasourceManager(), dbConnection, summaryMessage);
+                logger.info("Saved summary message to database (id: " + summaryMessage.getId() + ")");
+
+                // Build compacted message list: [summary] + [recent messages]
+                llmMessages = new ArrayList<>();
+                llmMessages.add(summaryMessage);
+
+                // Add recent messages
+                llmMessages.addAll(recentMessages);
+
+                // Recalculate tokens after compaction
+                // Sum actual tokens from recent messages + estimate for summary
+                messageTokens = TokenCounter.estimateTokens(summaryMessage);
+                for (Message msg : recentMessages) {
+                    if (msg.getInputTokens() != null) messageTokens += msg.getInputTokens();
+                    if (msg.getOutputTokens() != null) messageTokens += msg.getOutputTokens();
+                }
+                actualTotalTokens = systemPromptTokens + messageTokens;
+
+                // Calculate reduction (old actual tokens vs summary estimate)
+                int oldTokens = 0;
+                for (Message msg : oldMessages) {
+                    if (msg.getInputTokens() != null) oldTokens += msg.getInputTokens();
+                    if (msg.getOutputTokens() != null) oldTokens += msg.getOutputTokens();
+                }
+                int reduction = oldTokens - TokenCounter.estimateTokens(summaryMessage);
+
+                logger.info("Compaction complete - New token count: " + actualTotalTokens + " (reduced by " + reduction + " tokens)");
+
+            } catch (Exception e) {
+                logger.error("Error during compaction, continuing without compaction", e);
+                // Continue with original uncompacted messages
+            }
         }
 
         // Build tool definitions
@@ -392,45 +528,257 @@ public final class ConversationEndpoints {
     }
 
     /**
+     * Generate a summary of old conversation messages using Claude API.
+     * Used for conversation compaction to reduce token usage.
+     *
+     * @param claudeClient Claude API client
+     * @param settings Module settings
+     * @param messages Messages to summarize
+     * @return Concise summary text
+     * @throws Exception if summarization fails
+     */
+    private static String generateConversationSummary(ClaudeAPIClient claudeClient, IAISettings settings, List<Message> messages) throws Exception {
+        logger.info("Generating summary for " + messages.size() + " messages");
+
+        // Build conversation text for summarization
+        StringBuilder conversationText = new StringBuilder();
+        for (Message msg : messages) {
+            conversationText.append(msg.getRole().toUpperCase()).append(": ");
+            conversationText.append(msg.getContent());
+            conversationText.append("\n\n");
+        }
+
+        // Build summarization request
+        String summaryPrompt = "Summarize the following conversation concisely. " +
+                              "Focus on key decisions, findings, and context that would be important for continuing the conversation. " +
+                              "Use bullet points. Keep it under 500 words.\n\n" +
+                              conversationText.toString();
+
+        Message summaryRequestMsg = new Message();
+        summaryRequestMsg.setRole("user");
+        summaryRequestMsg.setContent(summaryPrompt);
+
+        List<Message> summaryMessages = new ArrayList<>();
+        summaryMessages.add(summaryRequestMsg);
+
+        LLMRequest summaryRequest = new LLMRequest();
+        summaryRequest.setModelName(settings.getModelName());
+        summaryRequest.setMaxTokens(2000);
+        summaryRequest.setSystemPrompt("You are a helpful assistant that summarizes technical conversations concisely.");
+        summaryRequest.setMessages(summaryMessages);
+        // No tools for summarization
+
+        // Call Claude API
+        LLMResponse summaryResponse = claudeClient.sendMessage(summaryRequest);
+
+        logger.info("Summary generated successfully (" + summaryResponse.getOutputTokens() + " tokens)");
+
+        return summaryResponse.getContent();
+    }
+
+    /**
      * Build system prompt with context variables injected.
      */
     /**
      * Get the default system prompt.
      */
-    private static String getDefaultSystemPrompt() {
-        return "You are Ignition AI, an AI assistant integrated into Inductive Automation's Ignition SCADA platform.\n\n" +
-            "## Your Role\n" +
-            "You help users understand, explore, and explain existing Ignition systems. You provide read-only analysis " +
-            "and never modify configurations, tags, or code.\n\n" +
-            "## Available Tools\n" +
-            "You have access to tools for reading project resources, querying tags and alarms, and analyzing system data.\n\n" +
-            "## Using Tools\n" +
-            "Use the available tools to retrieve actual system data. When users ask about system information, " +
-            "always use tools to get current, accurate data rather than making assumptions. This includes " +
-            "follow-up questions - verify data with tools each time.\n\n" +
-            "## Response Style\n" +
-            "Be clear, concise, and technical. Cite specific file paths and line numbers when referencing code.";
+    // ========== MODULAR SYSTEM PROMPT CONSTRUCTION ==========
+
+    /**
+     * Build system prompt using modular sections based on settings and context.
+     * Pattern from modular-prompt-construction.md
+     */
+    private static String buildSystemPrompt(IAISettings settings, Conversation conversation, ToolRegistry toolRegistry) {
+        // Use custom prompt from settings if provided
+        String customPrompt = settings.getSystemPrompt();
+        if (customPrompt != null && !customPrompt.trim().isEmpty()) {
+            // Custom prompt - just inject basic variables and return
+            return customPrompt
+                .replace("{PROJECT_NAME}", conversation.getProjectName() != null ? conversation.getProjectName() : "Unknown")
+                .replace("{USER_NAME}", conversation.getUserName() != null ? conversation.getUserName() : "Anonymous");
+        }
+
+        // Build modular prompt from sections
+        StringBuilder prompt = new StringBuilder();
+
+        // Identity (always included)
+        prompt.append(sectionIdentity()).append("\n\n");
+
+        // Role (conditional on execution mode)
+        String roleSection = sectionRole(settings);
+        if (!roleSection.isEmpty()) {
+            prompt.append(roleSection).append("\n\n");
+        }
+
+        // Verification (always included - addresses hallucination issues)
+        prompt.append(sectionVerification()).append("\n\n");
+
+        // Tool Discovery (conditional on system function execution enabled)
+        String toolDiscoverySection = sectionToolDiscovery(settings);
+        if (!toolDiscoverySection.isEmpty()) {
+            prompt.append(toolDiscoverySection).append("\n\n");
+        }
+
+        // Tool Usage (conditional on system function execution enabled)
+        String toolUsageSection = sectionToolUsage(settings);
+        if (!toolUsageSection.isEmpty()) {
+            prompt.append(toolUsageSection).append("\n\n");
+        }
+
+        // Parameter Guidance (conditional on UNRESTRICTED mode)
+        String parameterSection = sectionParameterGuidance(settings);
+        if (!parameterSection.isEmpty()) {
+            prompt.append(parameterSection).append("\n\n");
+        }
+
+        // Error Handling (always included)
+        prompt.append(sectionErrorHandling()).append("\n\n");
+
+        // Available Tools (always included)
+        prompt.append(sectionAvailableTools(toolRegistry)).append("\n\n");
+
+        // Response Style (always included)
+        prompt.append(sectionResponseStyle());
+
+        // Inject runtime context
+        String finalPrompt = prompt.toString();
+        finalPrompt = finalPrompt.replace("{PROJECT_NAME}", conversation.getProjectName() != null ? conversation.getProjectName() : "Unknown");
+        finalPrompt = finalPrompt.replace("{USER_NAME}", conversation.getUserName() != null ? conversation.getUserName() : "Anonymous");
+
+        return finalPrompt;
     }
 
-    private static String buildSystemPrompt(IAISettings settings, Conversation conversation, ToolRegistry toolRegistry) {
-        // Use custom prompt from settings, or fall back to hardcoded default if empty
-        String prompt = settings.getSystemPrompt();
-        if (prompt == null || prompt.trim().isEmpty()) {
-            prompt = getDefaultSystemPrompt();
+    private static String sectionIdentity() {
+        return "You are Ignition AI, an AI assistant integrated into Inductive Automation's Ignition SCADA platform.";
+    }
+
+    private static String sectionRole(IAISettings settings) {
+        StringBuilder section = new StringBuilder("## Your Role\n");
+
+        if (settings.getAllowSystemFunctionExecution()) {
+            String mode = settings.getSystemFunctionMode();
+            if ("UNRESTRICTED".equals(mode)) {
+                section.append("You help users understand, explore, AND MODIFY Ignition systems. ");
+                section.append("You can execute ANY system.* function including WRITE OPERATIONS ");
+                section.append("(tag writes, database updates, alarm actions, configuration changes, etc.).");
+            } else if ("READ_ONLY".equals(mode)) {
+                section.append("You help users understand and explore Ignition systems. ");
+                section.append("You can execute whitelisted READ-ONLY system.* functions ");
+                section.append("(tag reads, database queries, alarm queries, etc.). Write operations are blocked.");
+            } else {
+                section.append("You help users understand and explore Ignition systems. ");
+                section.append("You provide read-only analysis and cannot modify configurations, tags, or code.");
+            }
+        } else {
+            section.append("You help users understand and explore Ignition systems. ");
+            section.append("You provide read-only analysis and cannot modify configurations, tags, or code.");
         }
 
-        // Inject variables
-        prompt = prompt.replace("{PROJECT_NAME}", conversation.getProjectName() != null ? conversation.getProjectName() : "Unknown");
-        prompt = prompt.replace("{USER_NAME}", conversation.getUserName() != null ? conversation.getUserName() : "Anonymous");
+        return section.toString();
+    }
 
-        // Build available tools list
-        StringBuilder toolsList = new StringBuilder();
+    private static String sectionVerification() {
+        return "## Verification Protocol\n" +
+            "**CRITICAL:** Always verify operations with tools. Never guess or assume results.\n" +
+            "- After writing data: Read it back to confirm the write succeeded\n" +
+            "- After configuration changes: Query the configuration to verify\n" +
+            "- When uncertain: Use tools to check actual state, never fabricate responses\n" +
+            "- Show all tool executions in your responses so users can see what you checked";
+    }
+
+    private static String sectionToolDiscovery(IAISettings settings) {
+        if (!settings.getAllowSystemFunctionExecution()) {
+            return "";
+        }
+
+        String mode = settings.getSystemFunctionMode();
+        if ("DISABLED".equals(mode)) {
+            return "";
+        }
+
+        return "## Tool Discovery\n" +
+            "Before saying you cannot do something, search for available functions:\n" +
+            "- Use `list_system_functions` with a search query (e.g., query=\"tag rename\")\n" +
+            "- There are 256+ system.* functions - always search rather than assuming\n" +
+            "- Functions are organized by category: system.tag, system.db, system.alarm, system.util, etc.\n" +
+            "- Use the category parameter to filter (e.g., category=\"system.tag\")";
+    }
+
+    private static String sectionToolUsage(IAISettings settings) {
+        if (!settings.getAllowSystemFunctionExecution()) {
+            return "";
+        }
+
+        String mode = settings.getSystemFunctionMode();
+        if ("DISABLED".equals(mode)) {
+            return "";
+        }
+
+        return "## Tool Usage Best Practices\n" +
+            "When using `execute_system_function`:\n" +
+            "- First use `list_system_functions` to find the right function and see its parameters\n" +
+            "- Structure parameters as JSON objects: {\"paramName\": value}\n" +
+            "- Use proper data types: lists for arrays, strings in quotes, numbers without quotes\n" +
+            "- Always provide the project_name parameter (use {PROJECT_NAME} as default)\n" +
+            "- Check the result for errors: look for \"error\" field in response\n" +
+            "- If a function fails, try alternative functions or search for other approaches";
+    }
+
+    private static String sectionParameterGuidance(IAISettings settings) {
+        if (!settings.getAllowSystemFunctionExecution()) {
+            return "";
+        }
+
+        String mode = settings.getSystemFunctionMode();
+        if (!"UNRESTRICTED".equals(mode)) {
+            return "";
+        }
+
+        return "## Parameter Structure Examples\n" +
+            "**Tag write:**\n" +
+            "```json\n" +
+            "{\"tagPaths\": [\"[default]MyTag\"], \"values\": [100]}\n" +
+            "```\n\n" +
+            "**Tag configure:**\n" +
+            "```json\n" +
+            "{\"basePath\": \"[default]\", \"tags\": [{\"name\": \"NewTag\", \"dataType\": \"Int4\", \"value\": 0}]}\n" +
+            "```\n\n" +
+            "**Database query:**\n" +
+            "```json\n" +
+            "{\"query\": \"SELECT * FROM table WHERE id = ?\", \"params\": [123], \"database\": \"MyDB\"}\n" +
+            "```";
+    }
+
+    private static String sectionErrorHandling() {
+        return "## Error Handling\n" +
+            "When operations fail:\n" +
+            "- Read the error message carefully - it often explains what went wrong\n" +
+            "- Try alternative approaches (e.g., if configure fails, try a different collision policy)\n" +
+            "- Search for other functions that might accomplish the same goal\n" +
+            "- Verify your parameters match the expected structure\n" +
+            "- If a function doesn't exist, search for similar functions";
+    }
+
+    private static String sectionAvailableTools(ToolRegistry toolRegistry) {
+        StringBuilder section = new StringBuilder("## Available Tools\n");
+        section.append("You have access to these tools:\n");
+
         for (String toolName : toolRegistry.getAllTools().keySet()) {
-            toolsList.append("- ").append(toolName).append("\n");
+            section.append("- ").append(toolName).append("\n");
         }
-        prompt = prompt.replace("{AVAILABLE_TOOLS}", toolsList.toString());
 
-        return prompt;
+        section.append("\nUse tools to retrieve actual system data. When users ask about system information, ");
+        section.append("always use tools to get current, accurate data rather than making assumptions.");
+
+        return section.toString();
+    }
+
+    private static String sectionResponseStyle() {
+        return "## Response Style\n" +
+            "- Be clear, concise, and technical\n" +
+            "- Cite specific file paths and line numbers when referencing code\n" +
+            "- Show your tool executions so users can see what you checked\n" +
+            "- When you make changes, verify them and report the verified results";
     }
 
     /**
