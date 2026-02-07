@@ -6,10 +6,12 @@ An AI-powered assistant for exploring and understanding Ignition SCADA systems t
 
 - **Natural Language Queries** - Ask questions about your Ignition system in plain English
 - **Insight Chat Component** - Perspective component for interactive AI conversations
-- **Comprehensive Tools** - Access to project files, tags, alarms, databases, and gateway resources
-- **Conversation History** - Persistent conversations stored in database with export capabilities
-- **Read-Only Safety** - Analyzes and explains systems without making modifications
-- **Multi-Project Support** - Works across different Ignition projects
+- **Comprehensive Tools** - 35 tools for project files, tags, alarms, databases, system functions, and gateway resources
+- **Conversation History** - Persistent conversations with automatic compaction to prevent token limits
+- **Scheduled Tasks** - Cron-based recurring AI queries with execution history
+- **System Function Execution** - Execute any system.* Jython function (optional, 100% coverage)
+- **Conversation Memory** - AI can query its own conversation history for context
+- **Read-Only Safety** - Default mode analyzes without modifications (system functions can be enabled)
 
 ## Requirements
 
@@ -60,8 +62,8 @@ Navigate to **Config → Ignition AI → Settings** in the Gateway webpage.
 
 #### Database Configuration
 - **Database Connection** (required) - Database for storing conversations
-  - Create tables using the SQL schemas in `gateway/src/main/java/com/iai/ignition/gateway/database/`
-  - Tables: `iai_conversations`, `iai_messages`
+  - Tables created automatically on first use
+  - Tables: `iai_conversations`, `iai_messages`, `iai_debug_log`, `iai_scheduled_tasks`, `iai_task_executions`
 - **Enable Database Tools** - Allow AI to query databases (default: true)
 
 #### Tool Limits
@@ -72,9 +74,16 @@ Navigate to **Config → Ignition AI → Settings** in the Gateway webpage.
 
 #### Conversation Settings
 - **Max Conversation History Messages** - Message limit per conversation (default: 50)
+- **Max Tool Iterations** - Max tool calls per AI response to prevent loops (default: 10)
 
 #### Gateway Settings
 - **Gateway Data Path** - Auto-detected, usually `/usr/local/bin/ignition/data` or similar
+
+#### System Function Execution (Optional)
+- **Allow System Function Execution** - Enable Jython script execution (default: false, CAUTION)
+- **System Function Mode** - READ_ONLY (whitelisted safe functions) or UNRESTRICTED (all functions, testing only)
+- **System Function Timeout** - Execution timeout in seconds (default: 30)
+- **Max System Function Result Size** - Size limit in KB (default: 100)
 
 ### Database Setup
 
@@ -97,7 +106,12 @@ Create the required tables in your chosen database:
    - `projectName` - Bind to `{session.props.projectName}` (REQUIRED)
    - `userName` - Bind to `{session.props.auth.user.userName}` or leave empty
    - `conversationId` - Leave empty for new conversation, or bind to resume
-   - `showHistory`, `showTimestamps`, `showToolDetails`, `showTokenUsage` - UI options
+   - `showHistory`, `showTimestamps`, `showToolDetails`, `showTokenUsage` - UI display options
+   - `enableAutoCompaction` - Auto-summarize old messages at token threshold (default: true)
+   - `compactionTokenThreshold` - Token limit before compaction (default: 180000)
+   - `compactToRecentMessages` - Messages to keep in full during compaction (default: 30)
+   - `showScheduledTasks` - Show scheduled tasks panel (default: false)
+   - `taskPanelPosition` - "right" or "left" (default: "right")
    - `theme` - "light", "dark", or "auto"
    - `readOnly` - Disable input for display-only mode
    - `placeholder` - Custom input prompt text
@@ -107,9 +121,11 @@ Create the required tables in your chosen database:
 - "What Perspective views exist in this project?"
 - "Show me the current value of CompressorStation/Compressor1/Discharge_Pressure"
 - "What are the last 10 alarm events?"
-- "List all database connections"
-- "What modules are installed on this gateway?"
+- "List all database connections and tables"
 - "Search for scripts that reference 'pump' in their code"
+- "Browse the OPC device structure under [power]" (requires system functions enabled)
+- "Create a scheduled task to check alarm count every morning at 8am"
+- "What did we discuss about the compressor alarms earlier?" (conversation memory)
 
 ### Conversation Export
 
@@ -117,32 +133,45 @@ Export conversations as Markdown or JSON via the component or directly from the 
 
 ## Available Tools
 
-The AI has access to these tool categories:
+The AI has access to 35 tools across these categories:
 
-**File System** (12 tools)
-- Project structure, file metadata, Perspective views, Vision windows, scripts, named queries, search
+**File System** (14 tools)
+- Project structure, file metadata, Perspective views, Vision windows, scripts, named queries
+- Search gateway files, search project files, find resources by name
+- Read file content, script modules, named queries, Perspective views
 
-**Tags** (3 tools)
-- List tags, get configuration, query history
+**Tags** (4 tools)
+- List tag providers, list tags, get tag configuration, query tag history
 
 **Alarms** (2 tools)
-- Query history, get configuration
+- Query alarm history, get alarm configuration
 
-**Databases** (6 tools, if enabled)
-- List databases/tables, describe schema, query data, execute named queries
+**Databases** (6 tools, gated by EnableDatabaseTools)
+- List databases/tables, describe table schema, query data, execute named queries
+
+**Gateway** (1 tool)
+- List all Ignition projects
 
 **Search** (1 tool)
 - Project-wide resource search
 
-**System Functions** (2 tools, if enabled)
-- List and execute any system.* function via Jython script execution (100% coverage)
+**System Functions** (2 tools, gated by AllowSystemFunctionExecution)
+- List and execute any system.* function via Jython script execution
+- 100% coverage of all system.* modules (tag, db, alarm, opc, etc.)
+- READ_ONLY mode (whitelisted safe functions) or UNRESTRICTED mode (all functions)
+
+**Scheduled Tasks** (3 tools)
+- Create cron-based recurring queries, list tasks, manage (enable/disable/delete)
+
+**Conversation Memory** (1 tool)
+- Query conversation history for context about previous discussions
 
 ## Known Limitations
 
 - **Unsigned Module** - Requires developer mode enabled
-- **Token Limits** - Long conversations (>50 messages with heavy tool use) may degrade performance
-- **Read-Only** - Cannot modify tags, create resources, or change configurations
-- **No Code Execution** - Cannot run scripts or execute gateway functions
+- **Token Limits** - Mitigated by automatic conversation compaction (summarizes old messages)
+- **Read-Only by Default** - Cannot modify tags or configurations unless system functions enabled
+- **System Functions Caution** - UNRESTRICTED mode allows write operations (testing only)
 
 ## Troubleshooting
 
@@ -164,8 +193,8 @@ The AI has access to these tool categories:
 
 ### Hallucination / Incorrect Answers
 - AI may fabricate data if tools fail or return no results
-- Start fresh conversations to avoid token limit issues
-- Report patterns to help improve system prompt
+- Automatic compaction prevents token limit issues in long conversations
+- Check tool execution details (expand in UI) to verify AI's data sources
 
 ## Development
 
@@ -186,19 +215,17 @@ ignition-ai-module/
 ### Adding Tools
 
 1. Implement `IAITool` interface
-2. Add to `gateway/src/main/java/com/iai/ignition/gateway/tools/`
-3. Register in `ToolRegistry.java`
-
-See `TODO_TOOLS.md` for planned tools.
+2. Add to `gateway/src/main/java/com/iai/ignition/gateway/tools/[category]/`
+3. Register in `ToolRegistry.java` constructor
 
 ## Architecture Notes
 
-- System prompt in Gateway settings (leave empty for default)
-- Conversation history truncated to prevent token overflow
-- Tool results sanitized and size-limited
-- Component uses HTTP POST endpoints (not ModelDelegate pattern)
-
-See `TODO_ARCHITECTURE.md` for planned improvements.
+- **System Prompt** - Modular system in Gateway settings (leave empty for default)
+- **Conversation Compaction** - Automatic summarization at 180K tokens, keeps 30 recent messages
+- **Tool Results** - Sanitized and size-limited to prevent token overflow
+- **Component** - Uses HTTP POST endpoints (not ModelDelegate pattern)
+- **Database** - Tables auto-created via ConversationSchemaManager
+- **Scheduled Tasks** - TaskSchedulerService with static accessor for persistence across settings reloads
 
 ## License
 
