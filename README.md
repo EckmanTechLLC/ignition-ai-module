@@ -6,7 +6,7 @@ An AI-powered assistant for exploring and understanding Ignition SCADA systems t
 
 - **Natural Language Queries** - Ask questions about your Ignition system in plain English
 - **Insight Chat Component** - Perspective component for interactive AI conversations
-- **Comprehensive Tools** - 35 tools for project files, tags, alarms, databases, system functions, and gateway resources
+- **Comprehensive Tools** - 14 tools for project files, databases, system functions, and conversation management
 - **Conversation History** - Persistent conversations with automatic compaction to prevent token limits
 - **Scheduled Tasks** - Cron-based recurring AI queries with execution history
 - **System Function Execution** - Execute any system.* Jython function (optional, 100% coverage)
@@ -133,38 +133,33 @@ Export conversations as Markdown or JSON via the component or directly from the 
 
 ## Available Tools
 
-The AI has access to 35 tools across these categories:
+The AI has access to **14 tools** (maximum when all features enabled):
 
-**File System** (14 tools)
-- Project structure, file metadata, Perspective views, Vision windows, scripts, named queries
-- Search gateway files, search project files, find resources by name
-- Read file content, script modules, named queries, Perspective views
+**Core Tools** (3 tools - always available)
+- **QueryConversationMemoryTool** - Search conversation history for context
+- **ProjectFilesTool** - List project files with filtering (views, scripts, queries, etc.)
+- **SearchResourcesTool** - Fuzzy search across all project resources
 
-**Tags** (4 tools)
-- List tag providers, list tags, get tag configuration, query tag history
+**Database Tools** (6 tools - gated by EnableDatabaseTools setting)
+- **ListDatabasesTool** - List available database connections
+- **ListTablesTool** - List tables in a database
+- **DescribeTableTool** - Get table schema (columns, types, constraints)
+- **QueryTableTool** - Query table data with filtering
+- **ExecuteNamedQueryTool** - Execute Ignition named queries
+- **ExecuteSqlQueryTool** - Execute arbitrary SQL queries
 
-**Alarms** (2 tools)
-- Query alarm history, get alarm configuration
+**System Function Tools** (2 tools - gated by AllowSystemFunctionExecution setting)
+- **ListSystemFunctionsTool** - Discover available system.* functions dynamically
+- **ExecuteSystemFunctionTool** - Execute any system.* function via Jython
+  - 100% coverage of all system.* modules (tag, db, alarm, opc, date, util, etc.)
+  - READ_ONLY mode (whitelisted safe functions) or UNRESTRICTED mode (all functions)
+  - Supports positional and keyword arguments
+  - Three-tier serialization fallback for complex return types
 
-**Databases** (6 tools, gated by EnableDatabaseTools)
-- List databases/tables, describe table schema, query data, execute named queries
-
-**Gateway** (1 tool)
-- List all Ignition projects
-
-**Search** (1 tool)
-- Project-wide resource search
-
-**System Functions** (2 tools, gated by AllowSystemFunctionExecution)
-- List and execute any system.* function via Jython script execution
-- 100% coverage of all system.* modules (tag, db, alarm, opc, etc.)
-- READ_ONLY mode (whitelisted safe functions) or UNRESTRICTED mode (all functions)
-
-**Scheduled Tasks** (3 tools)
-- Create cron-based recurring queries, list tasks, manage (enable/disable/delete)
-
-**Conversation Memory** (1 tool)
-- Query conversation history for context about previous discussions
+**Scheduled Task Tools** (3 tools - always available)
+- **CreateScheduledTaskTool** - Create cron-based recurring AI queries
+- **ListScheduledTasksTool** - List scheduled tasks with execution history
+- **ManageScheduledTaskTool** - Enable/disable/delete scheduled tasks
 
 ## Known Limitations
 
