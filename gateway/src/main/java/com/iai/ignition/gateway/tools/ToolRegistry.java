@@ -5,6 +5,9 @@ import com.iai.ignition.gateway.records.IAISettings;
 import com.iai.ignition.gateway.tools.scripting.ScriptExecutor;
 import com.iai.ignition.gateway.tools.scripting.ListSystemFunctionsTool;
 import com.iai.ignition.gateway.tools.scripting.ExecuteSystemFunctionTool;
+import com.iai.ignition.gateway.tools.tasks.CreateScheduledTaskTool;
+import com.iai.ignition.gateway.tools.tasks.ListScheduledTasksTool;
+import com.iai.ignition.gateway.tools.tasks.ManageScheduledTaskTool;
 import com.inductiveautomation.ignition.common.gson.JsonObject;
 import com.inductiveautomation.ignition.common.util.LoggerEx;
 import com.inductiveautomation.ignition.gateway.model.GatewayContext;
@@ -41,63 +44,34 @@ public class ToolRegistry {
      * Tools are conditionally registered based on settings.
      */
     private void discoverAndRegisterTools() {
-        logger.info("Discovering and registering IAI tools...");
-
-        // Register File System Tools (13 tools)
-        registerTool(new com.iai.ignition.gateway.tools.filesystem.GetProjectStructureTool(gatewayContext, settings));
-        registerTool(new com.iai.ignition.gateway.tools.filesystem.GetFileMetadataTool(gatewayContext, settings));
-        registerTool(new com.iai.ignition.gateway.tools.filesystem.ReadFileContentTool(gatewayContext, settings));
-        registerTool(new com.iai.ignition.gateway.tools.filesystem.ListPerspectiveViewsTool(gatewayContext, settings));
-        registerTool(new com.iai.ignition.gateway.tools.filesystem.ReadPerspectiveViewTool(gatewayContext, settings));
-        registerTool(new com.iai.ignition.gateway.tools.filesystem.ReadVisionWindowTool(gatewayContext, settings.getGatewayDataPath()));
-        registerTool(new com.iai.ignition.gateway.tools.filesystem.ListScriptModulesTool(gatewayContext, settings));
-        registerTool(new com.iai.ignition.gateway.tools.filesystem.ReadScriptModuleTool(gatewayContext, settings));
-        registerTool(new com.iai.ignition.gateway.tools.filesystem.ListNamedQueriesTool(gatewayContext, settings));
-        registerTool(new com.iai.ignition.gateway.tools.filesystem.ReadNamedQueryTool(gatewayContext, settings));
-        registerTool(new com.iai.ignition.gateway.tools.filesystem.SearchProjectFilesTool(gatewayContext, settings));
-        registerTool(new com.iai.ignition.gateway.tools.filesystem.FindResourceByNameTool(gatewayContext, settings));
-        registerTool(new com.iai.ignition.gateway.tools.filesystem.SearchGatewayFilesTool(gatewayContext, settings));
-
-        // Register Tag Tools (4 tools)
-        registerTool(new com.iai.ignition.gateway.tools.tags.ListTagProvidersTool(gatewayContext, settings));
-        registerTool(new com.iai.ignition.gateway.tools.tags.ListTagsTool(gatewayContext, settings));
-        registerTool(new com.iai.ignition.gateway.tools.tags.GetTagConfigTool(gatewayContext, settings));
-        registerTool(new com.iai.ignition.gateway.tools.tags.QueryTagHistoryTool(gatewayContext, settings));
-
-        // Register Alarm Tools (2 tools)
-        registerTool(new com.iai.ignition.gateway.tools.alarms.QueryAlarmHistoryTool(gatewayContext, settings));
-        registerTool(new com.iai.ignition.gateway.tools.alarms.GetAlarmConfigTool(gatewayContext, settings));
+        // Core Meta-Tools (3 tools)
+        registerTool(new com.iai.ignition.gateway.tools.conversation.QueryConversationMemoryTool(gatewayContext, settings));
+        registerTool(new com.iai.ignition.gateway.tools.filesystem.ProjectFilesTool(gatewayContext, settings));
+        registerTool(new com.iai.ignition.gateway.tools.filesystem.SearchResourcesTool(gatewayContext, settings));
 
         // Database tools are gated by enableDatabaseTools setting (6 tools)
         if (settings.getEnableDatabaseTools()) {
-            logger.info("Database tools are enabled.");
             registerTool(new com.iai.ignition.gateway.tools.database.ListDatabasesTool(gatewayContext, settings));
             registerTool(new com.iai.ignition.gateway.tools.database.ListTablesTool(gatewayContext, settings));
             registerTool(new com.iai.ignition.gateway.tools.database.DescribeTableTool(gatewayContext, settings));
             registerTool(new com.iai.ignition.gateway.tools.database.QueryTableTool(gatewayContext, settings));
             registerTool(new com.iai.ignition.gateway.tools.database.ExecuteNamedQueryTool(gatewayContext, settings));
             registerTool(new com.iai.ignition.gateway.tools.database.ExecuteSqlQueryTool(gatewayContext, settings));
-        } else {
-            logger.info("Database tools are disabled.");
         }
 
-        // Register Search Tools (1 tool)
-        registerTool(new com.iai.ignition.gateway.tools.search.SearchProjectResourcesTool(gatewayContext, settings));
-
-        // Register Gateway Tools (1 tool)
-        registerTool(new com.iai.ignition.gateway.tools.gateway.ListProjectsTool(gatewayContext, settings));
-
-        // System function execution tools (gated by AllowSystemFunctionExecution)
+        // System function execution tools (gated by AllowSystemFunctionExecution) (2 tools)
         if (settings.getAllowSystemFunctionExecution()) {
-            logger.info("System function execution is enabled (mode: " + settings.getSystemFunctionMode() + ")");
             scriptExecutor = new ScriptExecutor(gatewayContext, settings);
             registerTool(new ListSystemFunctionsTool(gatewayContext, settings, scriptExecutor));
             registerTool(new ExecuteSystemFunctionTool(gatewayContext, settings, scriptExecutor));
-        } else {
-            logger.info("System function execution is disabled");
         }
 
-        logger.info("Tool registration complete. Registered " + tools.size() + " tools.");
+        // Scheduled task management tools (3 tools - always available)
+        registerTool(new CreateScheduledTaskTool(gatewayContext, settings));
+        registerTool(new ListScheduledTasksTool(gatewayContext, settings));
+        registerTool(new ManageScheduledTaskTool(gatewayContext, settings));
+
+        logger.info("IAI tools registered: " + tools.size() + " available");
     }
 
     /**
@@ -122,7 +96,6 @@ public class ToolRegistry {
         }
 
         tools.put(name, tool);
-        logger.debug("Registered tool: " + name);
     }
 
     /**
@@ -169,19 +142,36 @@ public class ToolRegistry {
      *
      * @param toolName The name of the tool to execute
      * @param params The parameters as a JSON object
+     * @param conversationId The current conversation ID (for context-aware tools)
+     * @param userName The current user name from conversation context
+     * @param projectName The current project name from conversation context
      * @return The result as a JSON object
      * @throws Exception if tool not found or execution fails
      */
-    public JsonObject executeTool(String toolName, JsonObject params) throws Exception {
+    public JsonObject executeTool(String toolName, JsonObject params, String conversationId, String userName, String projectName) throws Exception {
         IAITool tool = getTool(toolName);
         if (tool == null) {
             throw new IllegalArgumentException("Tool not found: " + toolName);
         }
 
-        logger.debug("Executing tool: " + toolName);
+        // Set conversation ID for memory tool
+        if (tool instanceof com.iai.ignition.gateway.tools.conversation.QueryConversationMemoryTool) {
+            ((com.iai.ignition.gateway.tools.conversation.QueryConversationMemoryTool) tool)
+                .setConversationId(conversationId);
+        }
+
+        // Set context for task management tools
+        if (tool instanceof com.iai.ignition.gateway.tools.tasks.CreateScheduledTaskTool) {
+            ((com.iai.ignition.gateway.tools.tasks.CreateScheduledTaskTool) tool)
+                .setContext(userName, projectName);
+        }
+        if (tool instanceof com.iai.ignition.gateway.tools.tasks.ListScheduledTasksTool) {
+            ((com.iai.ignition.gateway.tools.tasks.ListScheduledTasksTool) tool)
+                .setContext(userName, projectName);
+        }
+
         try {
             JsonObject result = tool.execute(params);
-            logger.debug("Tool execution completed: " + toolName);
             return result;
         } catch (Exception e) {
             logger.error("Error executing tool: " + toolName, e);

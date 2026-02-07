@@ -6,6 +6,169 @@
 const { Component, ComponentRegistry } = window.PerspectiveClient;
 const React = window.React;
 
+// Load marked.js dynamically from CDN
+(function loadMarked() {
+    if (window.marked) return; // Already loaded
+
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js';
+    script.async = false;
+    document.head.appendChild(script);
+})();
+
+// Load highlight.js for syntax highlighting
+(function loadHighlightJS() {
+    if (window.hljs) return; // Already loaded
+
+    // Load highlight.js library
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/highlight.min.js';
+    script.async = false;
+    script.onload = function() {
+        // Configure marked.js to use highlight.js after both libraries load
+        if (window.marked && window.hljs) {
+            marked.setOptions({
+                highlight: function(code, lang) {
+                    if (lang && hljs.getLanguage(lang)) {
+                        try {
+                            return hljs.highlight(code, { language: lang }).value;
+                        } catch (e) {
+                            console.warn('Highlight.js error:', e);
+                        }
+                    }
+                    return hljs.highlightAuto(code).value;
+                },
+                breaks: true,
+                gfm: true
+            });
+        }
+    };
+    document.head.appendChild(script);
+})();
+
+// Inject highlight.js CSS theme based on dark/light mode
+function injectHighlightTheme(isDark) {
+    const themeId = 'hljs-theme';
+    let existing = document.getElementById(themeId);
+
+    // Remove existing theme if present
+    if (existing) {
+        existing.remove();
+    }
+
+    // Inject new theme
+    const link = document.createElement('link');
+    link.id = themeId;
+    link.rel = 'stylesheet';
+    link.href = isDark
+        ? 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github-dark.min.css'
+        : 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.9.0/build/styles/github.min.css';
+    document.head.appendChild(link);
+}
+
+// HTML-to-React converter for safe markdown rendering
+function htmlToReactElements(html, isDark) {
+    const container = document.createElement('div');
+    container.innerHTML = html;
+    return convertDOMToReact(container, isDark);
+}
+
+function convertDOMToReact(node, isDark) {
+    if (node.nodeType === Node.TEXT_NODE) {
+        return node.textContent;
+    }
+
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+        return null;
+    }
+
+    const tagName = node.tagName.toLowerCase();
+    const props = { style: getMarkdownStyles(tagName, isDark) };
+
+    // Preserve className for highlight.js syntax highlighting
+    if (node.className) {
+        props.className = node.className;
+    }
+
+    const children = Array.from(node.childNodes).map(child => convertDOMToReact(child, isDark)).filter(Boolean);
+
+    return React.createElement(tagName, props, children.length > 0 ? children : null);
+}
+
+// Markdown element styles
+function getMarkdownStyles(tagName, isDark) {
+    const styles = {
+        h1: { fontSize: '1.875rem', fontWeight: 'bold', marginTop: '16px', marginBottom: '8px', color: isDark ? '#fff' : '#000' },
+        h2: { fontSize: '1.5rem', fontWeight: 'bold', marginTop: '14px', marginBottom: '7px', color: isDark ? '#fff' : '#000' },
+        h3: { fontSize: '1.25rem', fontWeight: 'bold', marginTop: '12px', marginBottom: '6px', color: isDark ? '#fff' : '#000' },
+        h4: { fontSize: '1.125rem', fontWeight: 'bold', marginTop: '10px', marginBottom: '5px', color: isDark ? '#fff' : '#000' },
+        h5: { fontSize: '1rem', fontWeight: 'bold', marginTop: '8px', marginBottom: '4px', color: isDark ? '#fff' : '#000' },
+        h6: { fontSize: '0.875rem', fontWeight: 'bold', marginTop: '6px', marginBottom: '3px', color: isDark ? '#aaa' : '#666' },
+        p: { marginTop: '0', marginBottom: '8px', lineHeight: '1.5' },
+        ul: { marginTop: '4px', marginBottom: '8px', paddingLeft: '20px' },
+        ol: { marginTop: '4px', marginBottom: '8px', paddingLeft: '20px' },
+        li: { marginBottom: '4px' },
+        code: {
+            backgroundColor: isDark ? '#1e1e1e' : '#f5f5f5',
+            padding: '2px 4px',
+            borderRadius: '3px',
+            fontFamily: 'monospace',
+            fontSize: '0.875rem',
+            color: isDark ? '#d4d4d4' : '#333'
+        },
+        pre: {
+            backgroundColor: isDark ? '#1e1e1e' : '#f5f5f5',
+            padding: '12px',
+            borderRadius: '6px',
+            overflowX: 'auto',
+            marginTop: '8px',
+            marginBottom: '8px'
+        },
+        blockquote: {
+            borderLeft: `4px solid ${isDark ? '#555' : '#ddd'}`,
+            paddingLeft: '12px',
+            marginLeft: '0',
+            marginTop: '8px',
+            marginBottom: '8px',
+            color: isDark ? '#aaa' : '#666',
+            fontStyle: 'italic'
+        },
+        table: {
+            borderCollapse: 'collapse',
+            width: '100%',
+            marginTop: '8px',
+            marginBottom: '8px',
+            fontSize: '0.875rem'
+        },
+        th: {
+            borderBottom: `2px solid ${isDark ? '#555' : '#ddd'}`,
+            padding: '8px',
+            textAlign: 'left',
+            fontWeight: 'bold',
+            backgroundColor: isDark ? '#2a2a2a' : '#f9f9f9'
+        },
+        td: {
+            borderBottom: `1px solid ${isDark ? '#444' : '#eee'}`,
+            padding: '8px',
+            textAlign: 'left'
+        },
+        a: {
+            color: isDark ? '#58a6ff' : '#0969da',
+            textDecoration: 'none'
+        },
+        strong: { fontWeight: 'bold' },
+        em: { fontStyle: 'italic' },
+        hr: {
+            border: 'none',
+            borderTop: `1px solid ${isDark ? '#444' : '#ddd'}`,
+            marginTop: '12px',
+            marginBottom: '12px'
+        }
+    };
+
+    return styles[tagName] || {};
+}
+
 // API endpoint base URL - POST directly to /data/ path to avoid redirect issues
 const API_BASE = `/data/ignitionai`;
 
@@ -49,6 +212,25 @@ const http = {
                 throw new Error(`HTTP ${res.status}`);
             });
         });
+    },
+    delete: (url) => {
+        return fetch(url, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' }
+        }).then(res => {
+            return res.json().then(data => {
+                if (!res.ok) {
+                    throw new Error(data.error || `HTTP ${res.status}`);
+                }
+                return { data, status: res.status };
+            }).catch(err => {
+                // If JSON parsing fails, throw generic error
+                if (err.message.includes('HTTP')) {
+                    throw err;
+                }
+                throw new Error(`HTTP ${res.status}`);
+            });
+        });
     }
 };
 
@@ -85,8 +267,13 @@ class InsightChatMeta {
             showTimestamps: tree.readBoolean("showTimestamps", true),
             showToolDetails: tree.readBoolean("showToolDetails", true),
             showTokenUsage: tree.readBoolean("showTokenUsage", true),
+            enableAutoCompaction: tree.readBoolean("enableAutoCompaction", true),
+            compactionTokenThreshold: tree.readNumber("compactionTokenThreshold", 180000),
+            compactToRecentMessages: tree.readNumber("compactToRecentMessages", 30),
             theme: tree.readString("theme", "light"),
             readOnly: tree.readBoolean("readOnly", false),
+            showScheduledTasks: tree.readBoolean("showScheduledTasks", false),
+            taskPanelPosition: tree.readString("taskPanelPosition", "right"),
             placeholder: tree.readString("placeholder", "Ask about your Ignition system...")
         };
     }
@@ -106,7 +293,11 @@ class InsightChatComponent extends Component {
             conversationId: props.props.conversationId,
             totalInputTokens: 0,
             totalOutputTokens: 0,
-            expandedTools: {}
+            expandedTools: {},
+            tasks: [],
+            taskPanelOpen: false,
+            loadingTasks: false,
+            taskError: null
         };
         this.messagesEndRef = null;
         this.textareaRef = null;
@@ -145,11 +336,25 @@ class InsightChatComponent extends Component {
         // Debug: Log the initial conversationId value
         console.log('InsightChat mounted with conversationId:', this.state.conversationId, 'type:', typeof this.state.conversationId);
 
+        // Inject highlight.js theme based on current theme
+        const isDark = this.props.props.theme === 'dark';
+        injectHighlightTheme(isDark);
+
         // Validate configuration but don't load conversation on initial mount
         // Conversations should only be loaded when conversationId changes to a valid value
         const configError = this.validateConfiguration();
         if (configError) {
             this.setState({ error: configError });
+        }
+
+        // Load tasks if enabled
+        if (this.props.props.showScheduledTasks) {
+            this.loadTasks();
+
+            // Set up interval for task refresh (every 10 seconds to catch tasks created by AI)
+            this.taskRefreshInterval = setInterval(() => {
+                this.loadTasks();
+            }, 10000);
         }
 
         // Do NOT load conversation on mount - only load when prop explicitly changes
@@ -193,6 +398,19 @@ class InsightChatComponent extends Component {
                 // Clear error if it was about missing projectName and now it's fixed
                 this.setState({ error: null });
             }
+        }
+
+        // Re-inject highlight.js theme if theme changes
+        if (prevProps.props.theme !== this.props.props.theme) {
+            const isDark = this.props.props.theme === 'dark';
+            injectHighlightTheme(isDark);
+        }
+    }
+
+    componentWillUnmount() {
+        // Clean up task refresh interval
+        if (this.taskRefreshInterval) {
+            clearInterval(this.taskRefreshInterval);
         }
     }
 
@@ -253,7 +471,7 @@ class InsightChatComponent extends Component {
 
     handleSendMessage() {
         const { inputValue, conversationId } = this.state;
-        const { userName, projectName } = this.props.props;
+        const { userName, projectName, enableAutoCompaction, compactionTokenThreshold, compactToRecentMessages } = this.props.props;
 
         // Validate input
         if (!inputValue.trim()) return;
@@ -284,7 +502,10 @@ class InsightChatComponent extends Component {
             conversationId: conversationId,
             userName: userName,
             projectName: projectName,
-            message: inputValue
+            message: inputValue,
+            enableAutoCompaction: enableAutoCompaction,
+            compactionTokenThreshold: compactionTokenThreshold,
+            compactToRecentMessages: compactToRecentMessages
         };
 
         const url = `${API_BASE}/sendMessage`;
@@ -372,6 +593,121 @@ class InsightChatComponent extends Component {
         }));
     }
 
+    loadTasks() {
+        const { userName, projectName } = this.props.props;
+        if (!projectName) return;
+
+        this.setState({ loadingTasks: true, taskError: null });
+
+        http.get(`${API_BASE}/listTasks?userName=${encodeURIComponent(userName || '')}&projectName=${encodeURIComponent(projectName)}`)
+            .then(response => {
+                if (response.data.success) {
+                    this.setState({
+                        tasks: response.data.tasks || [],
+                        loadingTasks: false
+                    });
+                } else {
+                    this.setState({
+                        taskError: response.data.error || 'Failed to load tasks',
+                        loadingTasks: false
+                    });
+                }
+            })
+            .catch(err => {
+                this.setState({
+                    taskError: err.message,
+                    loadingTasks: false
+                });
+            });
+    }
+
+    handleToggleTaskPanel() {
+        this.setState(prevState => ({
+            taskPanelOpen: !prevState.taskPanelOpen
+        }), () => {
+            // Always refresh tasks when opening panel to ensure current data
+            if (this.state.taskPanelOpen) {
+                this.loadTasks();
+            }
+        });
+    }
+
+    handleCreateTask(taskData) {
+        http.post(`${API_BASE}/createTask`, taskData)
+            .then(response => {
+                if (response.data.success) {
+                    this.loadTasks();
+                } else {
+                    alert('Failed to create task: ' + (response.data.error || 'Unknown error'));
+                }
+            })
+            .catch(err => {
+                alert('Error creating task: ' + err.message);
+            });
+    }
+
+    handlePauseTask(taskId) {
+        http.post(`${API_BASE}/pauseTask/${taskId}`, {})
+            .then(response => {
+                if (response.data.success) {
+                    this.loadTasks();
+                } else {
+                    alert('Failed to pause task: ' + (response.data.error || 'Unknown error'));
+                }
+            })
+            .catch(err => {
+                alert('Error pausing task: ' + err.message);
+            });
+    }
+
+    handleResumeTask(taskId) {
+        http.post(`${API_BASE}/resumeTask/${taskId}`, {})
+            .then(response => {
+                if (response.data.success) {
+                    this.loadTasks();
+                } else {
+                    alert('Failed to resume task: ' + (response.data.error || 'Unknown error'));
+                }
+            })
+            .catch(err => {
+                alert('Error resuming task: ' + err.message);
+            });
+    }
+
+    handleDeleteTask(taskId) {
+        if (!confirm('Delete this task?')) return;
+
+        http.delete(`${API_BASE}/deleteTask/${taskId}`)
+            .then(response => {
+                if (response.data.success) {
+                    this.loadTasks();
+                } else {
+                    alert('Failed to delete task: ' + (response.data.error || 'Unknown error'));
+                }
+            })
+            .catch(err => {
+                alert('Error deleting task: ' + err.message);
+            });
+    }
+
+    handleViewTaskExecutions(taskId) {
+        http.get(`${API_BASE}/getTaskExecutions/${taskId}?limit=10`)
+            .then(response => {
+                if (response.data.success) {
+                    const executions = response.data.executions || [];
+                    const message = executions.length > 0
+                        ? executions.map(e => `${new Date(e.executedAt).toLocaleString()}: ${e.status}` + (e.errorMessage ? ` - ${e.errorMessage}` : '')).join('\n')
+                        : 'No execution history';
+                    alert('Task Execution History:\n\n' + message);
+                } else {
+                    alert('Failed to load executions: ' + (response.data.error || 'Unknown error'));
+                }
+            })
+            .catch(err => {
+                alert('Error loading executions: ' + err.message);
+            });
+    }
+
     formatTimestamp(timestamp) {
         const date = new Date(timestamp);
         return date.toLocaleTimeString();
@@ -420,16 +756,18 @@ class InsightChatComponent extends Component {
             }, isUser ? 'You' : 'Assistant')
         );
 
-        // Message content
+        // Message content - parse markdown and convert to React elements
+        const markdownHtml = marked.parse(message.content || '', { breaks: true, gfm: true });
+        const contentElements = htmlToReactElements(markdownHtml, isDark);
+
         elements.push(
             React.createElement('div', {
                 key: 'content',
                 style: {
-                    whiteSpace: 'pre-wrap',
                     fontSize: '0.9375rem',
                     lineHeight: '1.5'
                 }
-            }, message.content)
+            }, contentElements)
         );
 
         // Tool calls (if any)
@@ -502,6 +840,169 @@ class InsightChatComponent extends Component {
             key: index,
             style: style
         }, elements);
+    }
+
+    renderTask(task, index) {
+        const isDark = this.props.props.theme === 'dark';
+
+        const taskCardStyle = {
+            padding: '12px',
+            marginBottom: '8px',
+            backgroundColor: isDark ? '#3a3a3a' : '#fff',
+            border: `1px solid ${isDark ? '#555' : '#e0e0e0'}`,
+            borderRadius: '6px'
+        };
+
+        const taskHeaderStyle = {
+            fontWeight: 'bold',
+            marginBottom: '6px',
+            fontSize: '0.875rem',
+            color: isDark ? '#fff' : '#000'
+        };
+
+        const taskInfoStyle = {
+            fontSize: '0.75rem',
+            color: isDark ? '#aaa' : '#666',
+            marginBottom: '4px'
+        };
+
+        const statusBadgeStyle = {
+            display: 'inline-block',
+            padding: '2px 6px',
+            borderRadius: '3px',
+            fontSize: '0.7rem',
+            fontWeight: 'bold',
+            backgroundColor: task.enabled ? (isDark ? '#2d5a2d' : '#d4edda') : (isDark ? '#5a2d2d' : '#f8d7da'),
+            color: task.enabled ? (isDark ? '#90ee90' : '#155724') : (isDark ? '#ff9999' : '#721c24')
+        };
+
+        const buttonStyle = {
+            padding: '4px 8px',
+            marginRight: '4px',
+            fontSize: '0.7rem',
+            border: 'none',
+            borderRadius: '3px',
+            cursor: 'pointer',
+            backgroundColor: isDark ? '#555' : '#e0e0e0',
+            color: isDark ? '#fff' : '#000'
+        };
+
+        return React.createElement('div', { key: index, style: taskCardStyle }, [
+            React.createElement('div', { key: 'header', style: taskHeaderStyle }, task.taskDescription),
+            React.createElement('div', { key: 'cron', style: taskInfoStyle }, `Schedule: ${task.cronExpression}`),
+            React.createElement('div', { key: 'next', style: taskInfoStyle }, `Next run: ${new Date(task.nextRunAt).toLocaleString()}`),
+            task.lastRunAt && React.createElement('div', { key: 'last', style: taskInfoStyle }, `Last run: ${new Date(task.lastRunAt).toLocaleString()}`),
+            React.createElement('div', { key: 'status', style: { marginTop: '6px', marginBottom: '6px' } }, [
+                React.createElement('span', { key: 'badge', style: statusBadgeStyle }, task.enabled ? 'ACTIVE' : 'PAUSED')
+            ]),
+            React.createElement('div', { key: 'actions' }, [
+                task.enabled
+                    ? React.createElement('button', {
+                        key: 'pause',
+                        style: buttonStyle,
+                        onClick: () => this.handlePauseTask(task.id)
+                    }, 'Pause')
+                    : React.createElement('button', {
+                        key: 'resume',
+                        style: buttonStyle,
+                        onClick: () => this.handleResumeTask(task.id)
+                    }, 'Resume'),
+                React.createElement('button', {
+                    key: 'delete',
+                    style: { ...buttonStyle, backgroundColor: isDark ? '#5a2d2d' : '#f8d7da', color: isDark ? '#ff9999' : '#721c24' },
+                    onClick: () => this.handleDeleteTask(task.id)
+                }, 'Delete'),
+                React.createElement('button', {
+                    key: 'history',
+                    style: buttonStyle,
+                    onClick: () => this.handleViewTaskExecutions(task.id)
+                }, 'History')
+            ])
+        ]);
+    }
+
+    renderTaskPanel() {
+        const { taskPanelOpen, tasks, loadingTasks, taskError } = this.state;
+        const { taskPanelPosition, theme } = this.props.props;
+        const isDark = theme === 'dark';
+
+        if (!taskPanelOpen) return null;
+
+        const panelStyle = {
+            position: 'absolute',
+            top: 0,
+            [taskPanelPosition]: 0,
+            width: '320px',
+            height: '100%',
+            backgroundColor: isDark ? '#2d2d2d' : '#f8f9fa',
+            borderLeft: taskPanelPosition === 'right' ? `1px solid ${isDark ? '#444' : '#ddd'}` : 'none',
+            borderRight: taskPanelPosition === 'left' ? `1px solid ${isDark ? '#444' : '#ddd'}` : 'none',
+            overflowY: 'auto',
+            zIndex: 100,
+            boxShadow: '0 0 10px rgba(0,0,0,0.3)',
+            padding: '16px'
+        };
+
+        const headerStyle = {
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '16px',
+            paddingBottom: '8px',
+            borderBottom: `1px solid ${isDark ? '#444' : '#ddd'}`
+        };
+
+        const closeButtonStyle = {
+            background: 'none',
+            border: 'none',
+            fontSize: '1.5rem',
+            cursor: 'pointer',
+            color: isDark ? '#fff' : '#000',
+            padding: '0',
+            lineHeight: '1'
+        };
+
+        const emptyStyle = {
+            padding: '20px',
+            textAlign: 'center',
+            color: isDark ? '#888' : '#999',
+            fontSize: '0.875rem'
+        };
+
+        const errorStyle = {
+            padding: '12px',
+            backgroundColor: isDark ? '#5a2d2d' : '#f8d7da',
+            color: isDark ? '#ff9999' : '#721c24',
+            borderRadius: '6px',
+            marginBottom: '12px',
+            fontSize: '0.875rem'
+        };
+
+        return React.createElement('div', { style: panelStyle }, [
+            React.createElement('div', { key: 'header', style: headerStyle }, [
+                React.createElement('h3', {
+                    key: 'title',
+                    style: { margin: 0, fontSize: '1rem', color: isDark ? '#fff' : '#000' }
+                }, 'Scheduled Tasks'),
+                React.createElement('button', {
+                    key: 'close',
+                    style: closeButtonStyle,
+                    onClick: () => this.handleToggleTaskPanel()
+                }, '✕')
+            ]),
+            loadingTasks && React.createElement('div', {
+                key: 'loading',
+                style: { padding: '20px', textAlign: 'center', color: isDark ? '#888' : '#999' }
+            }, 'Loading tasks...'),
+            taskError && React.createElement('div', { key: 'error', style: errorStyle }, taskError),
+            !loadingTasks && !taskError && tasks.length === 0 && React.createElement('div', {
+                key: 'empty',
+                style: emptyStyle
+            }, 'No scheduled tasks'),
+            !loadingTasks && !taskError && tasks.length > 0 && React.createElement('div', {
+                key: 'tasks'
+            }, tasks.map((task, i) => this.renderTask(task, i)))
+        ]);
     }
 
     render() {
@@ -589,6 +1090,11 @@ class InsightChatComponent extends Component {
                 style: { fontWeight: 'bold', fontSize: '1.125rem' }
             }, 'Ignition AI'),
             React.createElement('div', { key: 'actions' }, [
+                props.showScheduledTasks && React.createElement('button', {
+                    key: 'tasks',
+                    style: headerButtonStyle,
+                    onClick: () => this.handleToggleTaskPanel()
+                }, `📋 Tasks (${this.state.tasks.filter(t => t.enabled).length})`),
                 !props.readOnly && React.createElement('button', {
                     key: 'clear',
                     style: headerButtonStyle,
@@ -673,9 +1179,9 @@ class InsightChatComponent extends Component {
             'div',
             {
                 ...emitProps,
-                style: { ...emitProps.style, ...themeStyles }
+                style: { ...emitProps.style, ...themeStyles, position: 'relative' }
             },
-            [header, messagesArea, inputArea]
+            [header, messagesArea, inputArea, props.showScheduledTasks && this.renderTaskPanel()]
         );
     }
 }

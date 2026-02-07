@@ -36,6 +36,8 @@ public class ExecuteSystemFunctionTool implements IAITool {
     public String getDescription() {
         return "Execute an Ignition system.* scripting function by name with parameters. " +
                "Actual Jython script execution with 100% function coverage. " +
+               "Supports positional arguments (use numeric keys: \"0\", \"1\", \"2\") and keyword arguments (use named keys). " +
+               "Example: params={\"0\": \"*\", \"recursive\": true} calls function('*', recursive=true). " +
                "Safety mode determines which functions are available: " +
                "READ_ONLY (default, whitelisted safe functions only), " +
                "UNRESTRICTED (all functions, testing only), " +
@@ -58,7 +60,7 @@ public class ExecuteSystemFunctionTool implements IAITool {
         // Parameters
         JsonObject params = new JsonObject();
         params.addProperty("type", "object");
-        params.addProperty("description", "Function-specific parameters as key-value pairs");
+        params.addProperty("description", "Function-specific parameters. Use numeric keys (\"0\", \"1\", \"2\") for positional arguments, or named keys for keyword arguments. Example: {\"0\": \"*\", \"recursive\": true} calls function('*', recursive=true)");
         properties.add("params", params);
 
         // Project name
@@ -146,7 +148,7 @@ public class ExecuteSystemFunctionTool implements IAITool {
             result.addProperty("functionName", functionName);
             result.addProperty("mode", mode);
 
-            logger.info("System function executed successfully in " + duration + "ms");
+            logger.debug("System function executed in " + duration + "ms");
 
             return result;
 

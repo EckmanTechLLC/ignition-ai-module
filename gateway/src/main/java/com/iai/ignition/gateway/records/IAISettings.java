@@ -34,6 +34,7 @@ public class IAISettings extends PersistentRecord {
 
     // Conversation Settings
     public static final IntField MaxConversationHistoryMessages = new IntField(META, "MaxConversationHistoryMessages").setDefault(50);
+    public static final IntField MaxToolIterations = new IntField(META, "MaxToolIterations").setDefault(10);
 
     // Gateway Detection
     public static final StringField GatewayDataPath = new StringField(META, "GatewayDataPath");
@@ -52,7 +53,7 @@ public class IAISettings extends PersistentRecord {
     static final Category ToolLimits = new Category("IAISettings.Category.ToolLimits", 1002)
         .include(MaxToolResultSizeKB, MaxTagHistoryRecords, MaxAlarmHistoryRecords, QueryTimeoutSeconds);
     static final Category ConversationSettings = new Category("IAISettings.Category.Conversation", 1003)
-        .include(MaxConversationHistoryMessages);
+        .include(MaxConversationHistoryMessages, MaxToolIterations);
     static final Category GatewaySettings = new Category("IAISettings.Category.Gateway", 1004)
         .include(GatewayDataPath);
     static final Category SystemFunctionSettings = new Category("IAISettings.Category.SystemFunctions", 1005)
@@ -108,6 +109,10 @@ public class IAISettings extends PersistentRecord {
         return getInt(MaxConversationHistoryMessages);
     }
 
+    public Integer getMaxToolIterations() {
+        return getInt(MaxToolIterations);
+    }
+
     public String getGatewayDataPath() {
         return getString(GatewayDataPath);
     }
@@ -155,6 +160,10 @@ public class IAISettings extends PersistentRecord {
 
     public void setMaxConversationHistoryMessages(Integer value) {
         setInt(MaxConversationHistoryMessages, value);
+    }
+
+    public void setMaxToolIterations(Integer value) {
+        setInt(MaxToolIterations, value);
     }
 
     public void setGatewayDataPath(String value) {

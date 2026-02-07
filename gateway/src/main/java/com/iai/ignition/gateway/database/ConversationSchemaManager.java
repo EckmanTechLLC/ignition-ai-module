@@ -64,6 +64,80 @@ public class ConversationSchemaManager {
     };
 
     /**
+     * SQL to create debug log table.
+     */
+    private static final String CREATE_DEBUG_LOG_TABLE =
+        "CREATE TABLE IF NOT EXISTS iai_debug_log (" +
+        "    id VARCHAR(36) PRIMARY KEY," +
+        "    message_id VARCHAR(36)," +
+        "    request_json TEXT," +
+        "    response_json TEXT," +
+        "    timestamp BIGINT NOT NULL," +
+        "    FOREIGN KEY (message_id) REFERENCES iai_messages(id) ON DELETE CASCADE" +
+        ")";
+
+    /**
+     * SQL to create debug log indexes.
+     */
+    private static final String[] DEBUG_LOG_INDEXES = {
+        "CREATE INDEX IF NOT EXISTS idx_debug_msg ON iai_debug_log(message_id)",
+        "CREATE INDEX IF NOT EXISTS idx_debug_timestamp ON iai_debug_log(timestamp)"
+    };
+
+    /**
+     * SQL to create scheduled tasks table.
+     */
+    private static final String CREATE_SCHEDULED_TASKS_TABLE =
+        "CREATE TABLE IF NOT EXISTS iai_scheduled_tasks (" +
+        "    id VARCHAR(36) PRIMARY KEY," +
+        "    user_name VARCHAR(255)," +
+        "    project_name VARCHAR(255) NOT NULL," +
+        "    task_description TEXT NOT NULL," +
+        "    conversation_id VARCHAR(36)," +
+        "    prompt TEXT NOT NULL," +
+        "    cron_expression VARCHAR(100) NOT NULL," +
+        "    last_run_at BIGINT," +
+        "    next_run_at BIGINT NOT NULL," +
+        "    status VARCHAR(20) NOT NULL," +
+        "    result_storage VARCHAR(20) NOT NULL," +
+        "    created_at BIGINT NOT NULL," +
+        "    enabled BOOLEAN DEFAULT TRUE" +
+        ")";
+
+    /**
+     * SQL to create scheduled tasks indexes.
+     */
+    private static final String[] SCHEDULED_TASKS_INDEXES = {
+        "CREATE INDEX IF NOT EXISTS idx_task_user ON iai_scheduled_tasks(user_name)",
+        "CREATE INDEX IF NOT EXISTS idx_task_project ON iai_scheduled_tasks(project_name)",
+        "CREATE INDEX IF NOT EXISTS idx_task_next_run ON iai_scheduled_tasks(next_run_at)",
+        "CREATE INDEX IF NOT EXISTS idx_task_enabled ON iai_scheduled_tasks(enabled)"
+    };
+
+    /**
+     * SQL to create task executions table.
+     */
+    private static final String CREATE_TASK_EXECUTIONS_TABLE =
+        "CREATE TABLE IF NOT EXISTS iai_task_executions (" +
+        "    id VARCHAR(36) PRIMARY KEY," +
+        "    task_id VARCHAR(36) NOT NULL," +
+        "    executed_at BIGINT NOT NULL," +
+        "    conversation_id VARCHAR(36)," +
+        "    status VARCHAR(20) NOT NULL," +
+        "    error_message TEXT," +
+        "    execution_time_ms INTEGER," +
+        "    FOREIGN KEY (task_id) REFERENCES iai_scheduled_tasks(id) ON DELETE CASCADE" +
+        ")";
+
+    /**
+     * SQL to create task executions indexes.
+     */
+    private static final String[] TASK_EXECUTIONS_INDEXES = {
+        "CREATE INDEX IF NOT EXISTS idx_exec_task ON iai_task_executions(task_id)",
+        "CREATE INDEX IF NOT EXISTS idx_exec_time ON iai_task_executions(executed_at)"
+    };
+
+    /**
      * Create conversation and message tables in the specified database.
      *
      * @param datasourceManager The datasource manager
@@ -86,25 +160,45 @@ public class ConversationSchemaManager {
             try (Connection conn = datasource.getConnection()) {
                 // Create conversations table
                 executeUpdate(conn, CREATE_CONVERSATIONS_TABLE);
-                logger.info("Conversations table created or verified.");
 
                 // Create conversations indexes
                 for (String indexSql : CONVERSATIONS_INDEXES) {
                     executeUpdate(conn, indexSql);
                 }
-                logger.info("Conversations indexes created or verified.");
 
                 // Create messages table
                 executeUpdate(conn, CREATE_MESSAGES_TABLE);
-                logger.info("Messages table created or verified.");
 
                 // Create messages indexes
                 for (String indexSql : MESSAGES_INDEXES) {
                     executeUpdate(conn, indexSql);
                 }
-                logger.info("Messages indexes created or verified.");
 
-                logger.info("IAI database schema setup completed successfully.");
+                // Create debug log table
+                executeUpdate(conn, CREATE_DEBUG_LOG_TABLE);
+
+                // Create debug log indexes
+                for (String indexSql : DEBUG_LOG_INDEXES) {
+                    executeUpdate(conn, indexSql);
+                }
+
+                // Create scheduled tasks table
+                executeUpdate(conn, CREATE_SCHEDULED_TASKS_TABLE);
+
+                // Create scheduled tasks indexes
+                for (String indexSql : SCHEDULED_TASKS_INDEXES) {
+                    executeUpdate(conn, indexSql);
+                }
+
+                // Create task executions table
+                executeUpdate(conn, CREATE_TASK_EXECUTIONS_TABLE);
+
+                // Create task executions indexes
+                for (String indexSql : TASK_EXECUTIONS_INDEXES) {
+                    executeUpdate(conn, indexSql);
+                }
+
+                logger.info("IAI database schema initialized");
                 return true;
             }
         } catch (SQLException e) {
@@ -145,6 +239,9 @@ public class ConversationSchemaManager {
                 try (Statement stmt = conn.createStatement()) {
                     stmt.executeQuery("SELECT 1 FROM iai_conversations LIMIT 1");
                     stmt.executeQuery("SELECT 1 FROM iai_messages LIMIT 1");
+                    stmt.executeQuery("SELECT 1 FROM iai_debug_log LIMIT 1");
+                    stmt.executeQuery("SELECT 1 FROM iai_scheduled_tasks LIMIT 1");
+                    stmt.executeQuery("SELECT 1 FROM iai_task_executions LIMIT 1");
                 }
                 return true;
             }

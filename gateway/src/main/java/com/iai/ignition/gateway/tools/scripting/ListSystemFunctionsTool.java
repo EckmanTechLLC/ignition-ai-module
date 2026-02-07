@@ -7,6 +7,8 @@ import com.inductiveautomation.ignition.common.gson.JsonObject;
 import com.inductiveautomation.ignition.common.util.LoggerEx;
 import com.inductiveautomation.ignition.gateway.model.GatewayContext;
 
+import java.lang.annotation.Annotation;
+import java.lang.reflect.Method;
 import java.util.*;
 
 /**
@@ -21,8 +23,8 @@ public class ListSystemFunctionsTool implements IAITool {
     private final IAISettings settings;
     private final ScriptExecutor scriptExecutor;
 
-    // System function catalog (comprehensive list of all functions)
-    private static final List<SystemFunctionMetadata> FUNCTION_CATALOG = buildCatalog();
+    // System function catalog (built dynamically via reflection)
+    private static List<SystemFunctionMetadata> FUNCTION_CATALOG = null;
 
     public ListSystemFunctionsTool(GatewayContext gatewayContext, IAISettings settings, ScriptExecutor scriptExecutor) {
         this.gatewayContext = gatewayContext;
@@ -77,6 +79,15 @@ public class ListSystemFunctionsTool implements IAITool {
 
         logger.debug("Listing system functions - mode: " + mode + ", query: " + searchQuery + ", category: " + categoryFilter);
 
+        // Build catalog on first use (lazy initialization)
+        if (FUNCTION_CATALOG == null) {
+            synchronized (ListSystemFunctionsTool.class) {
+                if (FUNCTION_CATALOG == null) {
+                    FUNCTION_CATALOG = buildDynamicCatalog();
+                }
+            }
+        }
+
         // Filter functions based on mode and search criteria
         JsonArray functions = new JsonArray();
         for (SystemFunctionMetadata func : FUNCTION_CATALOG) {
@@ -120,334 +131,176 @@ public class ListSystemFunctionsTool implements IAITool {
             result.addProperty("message", "System function execution is disabled");
         }
 
-        logger.info("Listed " + functions.size() + " system functions in mode: " + mode);
 
         return result;
     }
 
     /**
-     * Build comprehensive catalog of system functions.
-     * This is a curated subset representing the most commonly used functions.
-     * Full catalog would include 256+ functions across 34 categories.
+     * Build comprehensive catalog of system functions via reflection.
+     * Discovers all system.* functions by introspecting Ignition's Java utility classes.
      */
-    private static List<SystemFunctionMetadata> buildCatalog() {
+    private static List<SystemFunctionMetadata> buildDynamicCatalog() {
         List<SystemFunctionMetadata> catalog = new ArrayList<>();
 
-        // ===== Tag Functions (system.tag.*) =====
-        catalog.add(new SystemFunctionMetadata(
-            "system.tag.read",
-            "system.tag",
-            "Read current values from one or more tags",
-            Arrays.asList(new Parameter("tagPaths", "list", "List of tag paths to read"))
-        ));
+        // Map of system module prefix to Java utility class name
+        Map<String, String> systemModules = new LinkedHashMap<>();
+        systemModules.put("system.tag", "com.inductiveautomation.ignition.common.script.builtin.AbstractTagUtilities");
+        systemModules.put("system.db", "com.inductiveautomation.ignition.common.script.builtin.AbstractDBUtilities");
+        systemModules.put("system.alarm", "com.inductiveautomation.ignition.common.script.builtin.AbstractAlarmUtilities");
+        systemModules.put("system.date", "com.inductiveautomation.ignition.common.script.builtin.AbstractDateUtilities");
+        systemModules.put("system.util", "com.inductiveautomation.ignition.common.script.builtin.AbstractSystemUtilities");
+        systemModules.put("system.net", "com.inductiveautomation.ignition.common.script.builtin.AbstractNetUtilities");
+        systemModules.put("system.dataset", "com.inductiveautomation.ignition.common.script.builtin.DatasetUtilities");
+        systemModules.put("system.file", "com.inductiveautomation.ignition.common.script.builtin.AbstractFileUtilities");
+        systemModules.put("system.security", "com.inductiveautomation.ignition.common.script.builtin.AbstractSecurityUtilities");
+        systemModules.put("system.user", "com.inductiveautomation.ignition.gateway.script.GatewayUserUtilities");
+        systemModules.put("system.device", "com.inductiveautomation.ignition.gateway.script.GatewayDeviceUtilities");
+        systemModules.put("system.opc", "com.inductiveautomation.ignition.gateway.script.GatewayOPCUtilities");
+        systemModules.put("system.project", "com.inductiveautomation.ignition.gateway.script.GatewayProjectUtilities");
 
-        catalog.add(new SystemFunctionMetadata(
-            "system.tag.readBlocking",
-            "system.tag",
-            "Read tag values synchronously (blocking)",
-            Arrays.asList(new Parameter("tagPaths", "list", "List of tag paths to read"), new Parameter("timeout", "int", "Timeout in milliseconds (optional)"))
-        ));
+        // Introspect each module
+        for (Map.Entry<String, String> entry : systemModules.entrySet()) {
+            String modulePrefix = entry.getKey();
+            String className = entry.getValue();
 
-        catalog.add(new SystemFunctionMetadata(
-            "system.tag.readAsync",
-            "system.tag",
-            "Read tag values asynchronously",
-            Arrays.asList(new Parameter("tagPaths", "list", "List of tag paths to read"))
-        ));
-
-        catalog.add(new SystemFunctionMetadata(
-            "system.tag.write",
-            "system.tag",
-            "Write values to one or more tags (WRITE OPERATION)",
-            Arrays.asList(
-                new Parameter("tagPaths", "list", "List of tag paths to write"),
-                new Parameter("values", "list", "Values to write to tags")
-            )
-        ));
-
-        catalog.add(new SystemFunctionMetadata(
-            "system.tag.writeBlocking",
-            "system.tag",
-            "Write tag values synchronously (WRITE OPERATION)",
-            Arrays.asList(
-                new Parameter("tagPaths", "list", "List of tag paths"),
-                new Parameter("values", "list", "Values to write"),
-                new Parameter("timeout", "int", "Timeout in milliseconds (optional)")
-            )
-        ));
-
-        catalog.add(new SystemFunctionMetadata(
-            "system.tag.browse",
-            "system.tag",
-            "Browse tags under a specified path",
-            Arrays.asList(new Parameter("parentPath", "string", "Parent tag path to browse"))
-        ));
-
-        catalog.add(new SystemFunctionMetadata(
-            "system.tag.exists",
-            "system.tag",
-            "Check if a tag path exists",
-            Arrays.asList(new Parameter("tagPath", "string", "Tag path to check"))
-        ));
-
-        catalog.add(new SystemFunctionMetadata(
-            "system.tag.queryTagHistory",
-            "system.tag",
-            "Query historical tag values",
-            Arrays.asList(
-                new Parameter("paths", "list", "Tag paths to query"),
-                new Parameter("startDate", "date", "Start date/time"),
-                new Parameter("endDate", "date", "End date/time")
-            )
-        ));
-
-        catalog.add(new SystemFunctionMetadata(
-            "system.tag.configure",
-            "system.tag",
-            "Configure tag properties (WRITE OPERATION)",
-            Arrays.asList(
-                new Parameter("basePath", "string", "Base path for tags"),
-                new Parameter("tags", "list", "Tag configuration objects"),
-                new Parameter("collisionPolicy", "string", "Collision policy (optional)")
-            )
-        ));
-
-        // ===== Database Functions (system.db.*) =====
-        catalog.add(new SystemFunctionMetadata(
-            "system.db.runQuery",
-            "system.db",
-            "Execute a SQL SELECT query and return results as dataset",
-            Arrays.asList(
-                new Parameter("query", "string", "SQL query to execute"),
-                new Parameter("database", "string", "Database connection name (optional)")
-            )
-        ));
-
-        catalog.add(new SystemFunctionMetadata(
-            "system.db.runPrepQuery",
-            "system.db",
-            "Execute a prepared SQL query with parameters",
-            Arrays.asList(
-                new Parameter("query", "string", "SQL query with ? placeholders"),
-                new Parameter("params", "list", "Parameter values for placeholders"),
-                new Parameter("database", "string", "Database connection name (optional)")
-            )
-        ));
-
-        catalog.add(new SystemFunctionMetadata(
-            "system.db.runScalarQuery",
-            "system.db",
-            "Execute a query that returns a single value",
-            Arrays.asList(
-                new Parameter("query", "string", "SQL query"),
-                new Parameter("database", "string", "Database connection name (optional)")
-            )
-        ));
-
-        catalog.add(new SystemFunctionMetadata(
-            "system.db.runUpdateQuery",
-            "system.db",
-            "Execute a SQL UPDATE/INSERT/DELETE query (WRITE OPERATION)",
-            Arrays.asList(
-                new Parameter("query", "string", "SQL update query"),
-                new Parameter("database", "string", "Database connection name (optional)")
-            )
-        ));
-
-        catalog.add(new SystemFunctionMetadata(
-            "system.db.runPrepUpdate",
-            "system.db",
-            "Execute a prepared UPDATE/INSERT/DELETE query (WRITE OPERATION)",
-            Arrays.asList(
-                new Parameter("query", "string", "SQL query with ? placeholders"),
-                new Parameter("params", "list", "Parameter values"),
-                new Parameter("database", "string", "Database connection name (optional)")
-            )
-        ));
-
-        // ===== Alarm Functions (system.alarm.*) =====
-        catalog.add(new SystemFunctionMetadata(
-            "system.alarm.queryJournal",
-            "system.alarm",
-            "Query the alarm journal for historical alarm events",
-            Arrays.asList(
-                new Parameter("startDate", "date", "Start date/time"),
-                new Parameter("endDate", "date", "End date/time"),
-                new Parameter("filter", "dict", "Optional filter criteria (priority, source, etc.)")
-            )
-        ));
-
-        catalog.add(new SystemFunctionMetadata(
-            "system.alarm.queryStatus",
-            "system.alarm",
-            "Query current alarm status",
-            Arrays.asList(
-                new Parameter("priority", "string", "Priority filter (optional)"),
-                new Parameter("state", "string", "State filter (optional)")
-            )
-        ));
-
-        catalog.add(new SystemFunctionMetadata(
-            "system.alarm.acknowledge",
-            "system.alarm",
-            "Acknowledge alarms (WRITE OPERATION)",
-            Arrays.asList(
-                new Parameter("alarmIds", "list", "List of alarm IDs to acknowledge"),
-                new Parameter("notes", "string", "Acknowledgment notes (optional)")
-            )
-        ));
-
-        // ===== Utility Functions (system.util.*) =====
-        catalog.add(new SystemFunctionMetadata(
-            "system.util.getSystemFlags",
-            "system.util",
-            "Get system flags and runtime information",
-            Collections.emptyList()
-        ));
-
-        catalog.add(new SystemFunctionMetadata(
-            "system.util.getGatewayStatus",
-            "system.util",
-            "Get gateway status information",
-            Collections.emptyList()
-        ));
-
-        catalog.add(new SystemFunctionMetadata(
-            "system.util.jsonEncode",
-            "system.util",
-            "Encode an object as JSON string",
-            Arrays.asList(new Parameter("obj", "object", "Object to encode as JSON"))
-        ));
-
-        catalog.add(new SystemFunctionMetadata(
-            "system.util.jsonDecode",
-            "system.util",
-            "Decode a JSON string to an object",
-            Arrays.asList(new Parameter("json", "string", "JSON string to decode"))
-        ));
-
-        catalog.add(new SystemFunctionMetadata(
-            "system.util.sendMessage",
-            "system.util",
-            "Send a message to a message handler (WRITE OPERATION)",
-            Arrays.asList(
-                new Parameter("project", "string", "Project name"),
-                new Parameter("messageHandler", "string", "Message handler name"),
-                new Parameter("payload", "dict", "Message payload")
-            )
-        ));
-
-        // ===== Date Functions (system.date.*) =====
-        catalog.add(new SystemFunctionMetadata(
-            "system.date.now",
-            "system.date",
-            "Get current date/time",
-            Collections.emptyList()
-        ));
-
-        catalog.add(new SystemFunctionMetadata(
-            "system.date.parse",
-            "system.date",
-            "Parse a date string into a date object",
-            Arrays.asList(
-                new Parameter("dateString", "string", "Date string to parse"),
-                new Parameter("format", "string", "Date format pattern (optional)")
-            )
-        ));
-
-        catalog.add(new SystemFunctionMetadata(
-            "system.date.format",
-            "system.date",
-            "Format a date object as a string",
-            Arrays.asList(
-                new Parameter("date", "date", "Date to format"),
-                new Parameter("format", "string", "Format pattern (optional)")
-            )
-        ));
-
-        catalog.add(new SystemFunctionMetadata(
-            "system.date.addDays",
-            "system.date",
-            "Add days to a date",
-            Arrays.asList(
-                new Parameter("date", "date", "Starting date"),
-                new Parameter("days", "int", "Number of days to add")
-            )
-        ));
-
-        catalog.add(new SystemFunctionMetadata(
-            "system.date.addHours",
-            "system.date",
-            "Add hours to a date",
-            Arrays.asList(
-                new Parameter("date", "date", "Starting date"),
-                new Parameter("hours", "int", "Number of hours to add")
-            )
-        ));
-
-        // ===== Network Functions (system.net.*) =====
-        catalog.add(new SystemFunctionMetadata(
-            "system.net.httpGet",
-            "system.net",
-            "Perform an HTTP GET request",
-            Arrays.asList(
-                new Parameter("url", "string", "URL to request"),
-                new Parameter("headerValues", "dict", "HTTP headers (optional)")
-            )
-        ));
-
-        catalog.add(new SystemFunctionMetadata(
-            "system.net.httpPost",
-            "system.net",
-            "Perform an HTTP POST request (WRITE OPERATION)",
-            Arrays.asList(
-                new Parameter("url", "string", "URL to post to"),
-                new Parameter("data", "string", "Data to post"),
-                new Parameter("headerValues", "dict", "HTTP headers (optional)")
-            )
-        ));
-
-        catalog.add(new SystemFunctionMetadata(
-            "system.net.sendEmail",
-            "system.net",
-            "Send an email (WRITE OPERATION)",
-            Arrays.asList(
-                new Parameter("smtp", "string", "SMTP profile name"),
-                new Parameter("to", "list", "Recipient email addresses"),
-                new Parameter("subject", "string", "Email subject"),
-                new Parameter("body", "string", "Email body")
-            )
-        ));
-
-        // ===== Dataset Functions (system.dataset.*) =====
-        catalog.add(new SystemFunctionMetadata(
-            "system.dataset.toPyDataSet",
-            "system.dataset",
-            "Convert a dataset to Python dataset format",
-            Arrays.asList(new Parameter("dataset", "dataset", "Dataset to convert"))
-        ));
-
-        catalog.add(new SystemFunctionMetadata(
-            "system.dataset.toDataSet",
-            "system.dataset",
-            "Convert data to a dataset",
-            Arrays.asList(
-                new Parameter("headers", "list", "Column headers"),
-                new Parameter("data", "list", "Row data")
-            )
-        ));
-
-        catalog.add(new SystemFunctionMetadata(
-            "system.dataset.exportCSV",
-            "system.dataset",
-            "Export dataset to CSV string",
-            Arrays.asList(
-                new Parameter("dataset", "dataset", "Dataset to export"),
-                new Parameter("showHeaders", "boolean", "Include headers (optional)")
-            )
-        ));
+            try {
+                Class<?> clazz = Class.forName(className);
+                catalog.addAll(extractFunctionsFromClass(clazz, modulePrefix));
+            } catch (ClassNotFoundException e) {
+                logger.warn("System module class not found: " + className + " (skipping)");
+            } catch (Exception e) {
+                logger.error("Error introspecting module: " + modulePrefix, e);
+            }
+        }
 
         return catalog;
+    }
+
+    /**
+     * Extract all functions from a utility class via reflection.
+     */
+    private static List<SystemFunctionMetadata> extractFunctionsFromClass(Class<?> clazz, String modulePrefix) {
+        List<SystemFunctionMetadata> functions = new ArrayList<>();
+
+        // Get all public methods
+        for (Method method : clazz.getMethods()) {
+            try {
+                // Check for @KeywordArgs annotation (indicates real function, not artifact)
+                Annotation keywordArgs = null;
+                for (Annotation ann : method.getAnnotations()) {
+                    if (ann.annotationType().getSimpleName().equals("KeywordArgs")) {
+                        keywordArgs = ann;
+                        break;
+                    }
+                }
+
+                if (keywordArgs == null) {
+                    continue; // Skip artifacts without @KeywordArgs
+                }
+
+                // Extract function name
+                String functionName = modulePrefix + "." + method.getName();
+
+                // Extract parameters from @KeywordArgs annotation
+                List<Parameter> parameters = extractParameters(keywordArgs);
+
+                // Extract description from resource bundle
+                String description = extractDescription(clazz, method.getName());
+
+                // Create metadata
+                SystemFunctionMetadata metadata = new SystemFunctionMetadata(
+                    functionName,
+                    modulePrefix,
+                    description,
+                    parameters
+                );
+
+                functions.add(metadata);
+
+            } catch (Exception e) {
+                logger.warn("Error extracting metadata for method: " + method.getName(), e);
+            }
+        }
+
+        return functions;
+    }
+
+    /**
+     * Extract parameter list from @KeywordArgs annotation.
+     */
+    private static List<Parameter> extractParameters(Annotation keywordArgs) {
+        List<Parameter> parameters = new ArrayList<>();
+
+        try {
+            // Get annotation values via reflection
+            Method namesMethod = keywordArgs.annotationType().getMethod("names");
+            Method typesMethod = keywordArgs.annotationType().getMethod("types");
+
+            String[] names = (String[]) namesMethod.invoke(keywordArgs);
+            Class<?>[] types = (Class<?>[]) typesMethod.invoke(keywordArgs);
+
+            // Create Parameter objects
+            for (int i = 0; i < names.length; i++) {
+                String paramName = names[i];
+                String paramType = simplifyTypeName(types[i]);
+                String paramDesc = paramName; // Default description is parameter name
+
+                parameters.add(new Parameter(paramName, paramType, paramDesc));
+            }
+
+        } catch (Exception e) {
+            logger.warn("Error extracting parameters from @KeywordArgs", e);
+        }
+
+        return parameters;
+    }
+
+    /**
+     * Extract function description from resource bundle.
+     */
+    private static String extractDescription(Class<?> clazz, String methodName) {
+        try {
+            // Find @ScriptFunction annotation to get docBundlePrefix
+            for (Annotation ann : clazz.getAnnotations()) {
+                if (ann.annotationType().getSimpleName().equals("ScriptFunction")) {
+                    Method prefixMethod = ann.annotationType().getMethod("docBundlePrefix");
+                    String bundlePrefix = (String) prefixMethod.invoke(ann);
+
+                    // Load resource bundle
+                    String bundleName = "com.inductiveautomation.ignition.common.script.builtin." + bundlePrefix;
+                    ResourceBundle bundle = ResourceBundle.getBundle(bundleName);
+
+                    // Get function description
+                    String descKey = methodName + ".desc";
+                    if (bundle.containsKey(descKey)) {
+                        return bundle.getString(descKey);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // Resource bundle not found or key missing - not critical
+        }
+
+        // Fallback: generate description from method name
+        return "Execute " + methodName + " function";
+    }
+
+    /**
+     * Simplify Java type names to friendly type strings.
+     */
+    private static String simplifyTypeName(Class<?> type) {
+        String name = type.getSimpleName().toLowerCase();
+
+        if (name.contains("string")) return "string";
+        if (name.contains("int") || name.contains("long")) return "int";
+        if (name.contains("double") || name.contains("float")) return "number";
+        if (name.contains("boolean")) return "boolean";
+        if (name.contains("date")) return "date";
+        if (name.contains("list")) return "list";
+        if (name.contains("map") || name.contains("dict")) return "dict";
+        if (name.contains("dataset")) return "dataset";
+
+        return "object"; // Fallback
     }
 
     /**

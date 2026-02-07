@@ -63,8 +63,6 @@ public class ScriptExecutor {
         // Build Python code to call function
         String pythonCode = buildPythonScript(functionName, params);
 
-        logger.debug("Generated Python code:\n" + pythonCode);
-
         // Execute with timeout
         Future<JsonObject> future = executorService.submit(() -> {
             try {
@@ -103,8 +101,29 @@ public class ScriptExecutor {
                     throw new Exception("Script did not set 'result' variable");
                 }
 
-                // Convert result Python → JSON
-                JsonElement resultElement = TypeUtilities.pyToGson(resultPy);
+                // Convert result Python → JSON with fallback strategies
+                JsonElement resultElement = null;
+                try {
+                    // Strategy 1: Try direct conversion via TypeUtilities
+                    resultElement = TypeUtilities.pyToGson(resultPy);
+                } catch (Exception e) {
+                    logger.debug("TypeUtilities.pyToGson() failed, trying fallback: " + e.getMessage());
+
+                    // Strategy 2: Try to extract meaningful data from complex objects
+                    try {
+                        resultElement = extractComplexObject(resultPy);
+                    } catch (Exception e2) {
+                        logger.debug("Complex object extraction failed, using string fallback: " + e2.getMessage());
+
+                        // Strategy 3: Fall back to string representation
+                        JsonObject fallback = new JsonObject();
+                        fallback.addProperty("result_string", resultPy.toString());
+                        fallback.addProperty("result_type", resultPy.getType().getName());
+                        fallback.addProperty("serialization_note", "Complex object converted to string - original type: " + resultPy.getType().getName());
+                        return fallback;
+                    }
+                }
+
                 if (resultElement == null || !resultElement.isJsonObject()) {
                     JsonObject wrapped = new JsonObject();
                     wrapped.add("value", resultElement);
@@ -131,7 +150,77 @@ public class ScriptExecutor {
     }
 
     /**
+     * Extract data from complex Python objects that can't be directly serialized.
+     * Handles common Ignition types like lists, browse results, qualified values, etc.
+     *
+     * @param pyObj Python object to extract
+     * @return JSON representation
+     * @throws Exception if extraction fails
+     */
+    private JsonElement extractComplexObject(PyObject pyObj) throws Exception {
+        // Check if it's a list/sequence by trying to get length
+        try {
+            int length = pyObj.__len__();
+            com.inductiveautomation.ignition.common.gson.JsonArray array = new com.inductiveautomation.ignition.common.gson.JsonArray();
+
+            for (int i = 0; i < length; i++) {
+                PyObject item = pyObj.__getitem__(i);
+
+                // Try to extract item as JSON
+                try {
+                    JsonElement itemJson = TypeUtilities.pyToGson(item);
+                    array.add(itemJson);
+                } catch (Exception e) {
+                    // If item can't be serialized, use its string representation
+                    JsonObject itemObj = new JsonObject();
+                    itemObj.addProperty("value", item.toString());
+                    itemObj.addProperty("type", item.getType().getName());
+                    array.add(itemObj);
+                }
+            }
+
+            JsonObject result = new JsonObject();
+            result.add("items", array);
+            result.addProperty("count", length);
+            return result;
+        } catch (Exception e) {
+            logger.debug("Not a sequence type, trying attribute extraction: " + e.getMessage());
+        }
+
+        // Check if it has common attributes we can extract
+        try {
+            JsonObject obj = new JsonObject();
+            obj.addProperty("string_representation", pyObj.toString());
+            obj.addProperty("type", pyObj.getType().getName());
+
+            // Try to extract common attributes
+            String[] commonAttrs = {"name", "path", "value", "quality", "timestamp", "nodeId", "displayName", "hasChildren"};
+            for (String attr : commonAttrs) {
+                try {
+                    PyObject attrValue = pyObj.__findattr__(attr);
+                    if (attrValue != null) {
+                        try {
+                            JsonElement attrJson = TypeUtilities.pyToGson(attrValue);
+                            obj.add(attr, attrJson);
+                        } catch (Exception e) {
+                            obj.addProperty(attr, attrValue.toString());
+                        }
+                    }
+                } catch (Exception e) {
+                    // Attribute doesn't exist, skip
+                }
+            }
+
+            return obj;
+        } catch (Exception e) {
+            throw new Exception("Could not extract complex object: " + e.getMessage());
+        }
+    }
+
+    /**
      * Build Python script to call system function.
+     * Supports both positional and keyword arguments.
+     * Parameters with numeric names (0, 1, 2, etc.) are treated as positional.
      *
      * @param functionName System function name
      * @param params Function parameters
@@ -149,9 +238,26 @@ public class ScriptExecutor {
         code.append("try:\n");
         code.append("    result = ").append(functionName).append("(");
 
-        // Add parameters
-        boolean first = true;
+        // Separate positional and keyword arguments
+        // Parameters named "0", "1", "2", etc. are treated as positional
+        java.util.List<String> positionalKeys = new java.util.ArrayList<>();
+        java.util.List<String> keywordKeys = new java.util.ArrayList<>();
+
         for (String key : params.keySet()) {
+            try {
+                Integer.parseInt(key);
+                positionalKeys.add(key);
+            } catch (NumberFormatException e) {
+                keywordKeys.add(key);
+            }
+        }
+
+        // Sort positional parameters by numeric value
+        positionalKeys.sort(java.util.Comparator.comparingInt(Integer::parseInt));
+
+        // Add positional arguments first
+        boolean first = true;
+        for (String key : positionalKeys) {
             if (!first) {
                 code.append(", ");
             }
@@ -159,9 +265,19 @@ public class ScriptExecutor {
             first = false;
         }
 
+        // Add keyword arguments
+        for (String key : keywordKeys) {
+            if (!first) {
+                code.append(", ");
+            }
+            code.append(key).append("=params['").append(key).append("']");
+            first = false;
+        }
+
         code.append(")\n");
         code.append("except Exception as e:\n");
-        code.append("    result = {'error': str(e), 'type': type(e).__name__}\n");
+        code.append("    import traceback\n");
+        code.append("    result = {'error': str(e) + '\\n' + traceback.format_exc(), 'type': type(e).__name__}\n");
 
         return code.toString();
     }
@@ -270,6 +386,14 @@ public class ScriptExecutor {
         whitelist.add("system.dataset.sort");
         whitelist.add("system.dataset.toCSV");
 
+        // OPC functions - browse/read operations
+        whitelist.add("system.opc.browse");
+        whitelist.add("system.opc.browseServer");
+        whitelist.add("system.opc.getServerState");
+        whitelist.add("system.opc.getServers");
+        whitelist.add("system.opc.readValue");
+        whitelist.add("system.opc.readValues");
+
         // Utility conversion/formatting functions
         whitelist.add("system.util.toJson");
         whitelist.add("system.util.fromJson");
@@ -278,8 +402,6 @@ public class ScriptExecutor {
         whitelist.add("system.util.getConnectionInfo");
         whitelist.add("system.util.modifyTranslation");
         whitelist.add("system.util.translate");
-
-        logger.info("Built read-only whitelist with " + whitelist.size() + " functions");
 
         // EXCLUDED (write/dangerous operations):
         // - system.tag.write*, system.tag.configure, system.tag.deleteTags, system.tag.copy, system.tag.move, system.tag.rename

@@ -37,6 +37,21 @@
             "description": "Show token usage per message and in footer",
             "default": true
         },
+        "enableAutoCompaction": {
+            "type": "boolean",
+            "description": "Enable automatic conversation compaction when approaching token limit. Summarizes old messages to keep context under limit.",
+            "default": true
+        },
+        "compactionTokenThreshold": {
+            "type": "number",
+            "description": "Token count threshold to trigger compaction (default: 180000). Lower for testing, raise to defer compaction.",
+            "default": 180000
+        },
+        "compactToRecentMessages": {
+            "type": "number",
+            "description": "Number of recent messages to keep in full detail during compaction (default: 30). Older messages get summarized.",
+            "default": 30
+        },
         "theme": {
             "type": "string",
             "description": "Component theme",
@@ -47,6 +62,17 @@
             "type": "boolean",
             "description": "Read-only mode (no input)",
             "default": false
+        },
+        "showScheduledTasks": {
+            "type": "boolean",
+            "description": "Show scheduled tasks panel with slideout",
+            "default": false
+        },
+        "taskPanelPosition": {
+            "type": "string",
+            "description": "Position of task panel",
+            "enum": ["right", "left"],
+            "default": "right"
         },
         "placeholder": {
             "type": "string",

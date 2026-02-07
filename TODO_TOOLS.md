@@ -16,11 +16,16 @@
 
 ## System Function Execution (Jython) ✅ COMPLETE
 
-- [x] **ListSystemFunctionsTool** - List all 256+ system.* functions with descriptions
+- [x] **ListSystemFunctionsTool** - List all system.* functions with descriptions (DYNAMIC DISCOVERY via reflection)
 - [x] **ExecuteSystemFunctionTool** - Execute any system.* function via Jython script execution
 - [x] **ScriptExecutor** - Core executor using ScriptManager for 100% coverage
 
 **Features:**
+- **Dynamic discovery** - 256+ functions discovered via Java reflection (no hardcoded catalog)
+- Introspects 13 system.* modules (tag, db, alarm, date, util, net, dataset, file, security, user, device, opc, project)
+- Extracts metadata from @KeywordArgs and @ScriptFunction annotations
+- Loads documentation from resource bundles automatically
+- Filters artifacts (functions without @KeywordArgs are skipped)
 - 100% coverage of all system.* functions (actual Jython execution)
 - JSON ↔ Python parameter/result marshalling via TypeUtilities
 - Configurable safety: DISABLED / READ_ONLY (default) / UNRESTRICTED
@@ -29,10 +34,12 @@
 - Project-scoped script execution
 
 **Implementation:**
+- Uses Java reflection to discover system.* utility classes
 - Uses `ScriptManager.runCode()` for execution
 - Uses `TypeUtilities.gsonToPy()` for JSON → Python
 - Uses `TypeUtilities.pyToGson()` for Python → JSON
 - Uses `ScriptManager.createLocalsMap()` to pre-import system.*
+- Lazy initialization with thread-safe caching
 
 ## Notes
 - **Tier 1 COMPLETE** - Core discovery tools working well

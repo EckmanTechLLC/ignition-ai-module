@@ -6,6 +6,7 @@ import com.iai.ignition.gateway.database.ConversationSchemaManager;
 // import com.iai.ignition.gateway.delegate.InsightChatModelDelegate;
 import com.iai.ignition.gateway.endpoints.ConversationEndpoints;
 import com.iai.ignition.gateway.records.IAISettings;
+import com.iai.ignition.gateway.tasks.TaskSchedulerService;
 import com.iai.ignition.gateway.util.GatewayPathDetector;
 import com.iai.ignition.gateway.web.IAISettingsPage;
 import com.inductiveautomation.ignition.common.BundleUtil;
@@ -40,6 +41,10 @@ public class GatewayHook extends AbstractGatewayModuleHook {
     private ComponentRegistry componentRegistry;
     // private ComponentModelDelegateRegistry modelDelegateRegistry;
     private IAISettings settings;
+    private TaskSchedulerService taskScheduler;
+
+    // Static reference for tools to access scheduler
+    private static TaskSchedulerService staticTaskScheduler;
 
     /**
      * Config category for the settings page
@@ -168,6 +173,14 @@ public class GatewayHook extends AbstractGatewayModuleHook {
             createDatabaseTables(settings);
         }
 
+        // Initialize and start task scheduler
+        if (settings != null) {
+            logger.info("Initializing TaskSchedulerService");
+            taskScheduler = new TaskSchedulerService(gatewayContext, settings);
+            staticTaskScheduler = taskScheduler; // Make scheduler accessible via static method
+            taskScheduler.start();
+        }
+
         this.perspectiveContext = PerspectiveContext.get(this.gatewayContext);
         this.componentRegistry = this.perspectiveContext.getComponentRegistry();
         // this.modelDelegateRegistry = this.perspectiveContext.getComponentModelDelegateRegistry();
@@ -279,6 +292,15 @@ public class GatewayHook extends AbstractGatewayModuleHook {
     public void shutdown() {
         logger.info("Shutting down Ignition AI module and removing registered components.");
 
+        // Stop task scheduler
+        if (taskScheduler != null) {
+            logger.info("Stopping TaskSchedulerService");
+            taskScheduler.stop();
+        }
+
+        // Clear static reference
+        staticTaskScheduler = null;
+
         // Remove localization bundle
         BundleUtil.get().removeBundle("IgnitionAI");
 
@@ -307,6 +329,14 @@ public class GatewayHook extends AbstractGatewayModuleHook {
     @Override
     public boolean isFreeModule() {
         return true;
+    }
+
+    /**
+     * Get the TaskSchedulerService instance.
+     * Used by tools to schedule tasks dynamically.
+     */
+    public static TaskSchedulerService getTaskScheduler() {
+        return staticTaskScheduler;
     }
 
     @Override
