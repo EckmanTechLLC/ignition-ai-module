@@ -268,6 +268,19 @@ public final class ConversationEndpoints {
                 response.add("toolCalls", toolCallsArray);
             }
 
+            // Include tool results if any
+            if (assistantMessage.getToolResults() != null && !assistantMessage.getToolResults().isEmpty()) {
+                JsonArray toolResultsArray = new JsonArray();
+                for (ToolResult tr : assistantMessage.getToolResults()) {
+                    JsonObject toolResultObj = new JsonObject();
+                    toolResultObj.addProperty("toolCallId", tr.getToolCallId());
+                    toolResultObj.addProperty("content", tr.getContent());
+                    toolResultObj.addProperty("isError", tr.isError());
+                    toolResultsArray.add(toolResultObj);
+                }
+                response.add("toolResults", toolResultsArray);
+            }
+
         } catch (Exception e) {
             logger.error("Error in sendMessage endpoint", e);
             response.addProperty("success", false);
@@ -574,9 +587,12 @@ public final class ConversationEndpoints {
         assistantMessage.setConversationId(conversation.getId());
         assistantMessage.setRole("assistant");
         assistantMessage.setContent(llmResponse.getContent());
-        // Save toolCalls for audit/display purposes only
+        // Save toolCalls and toolResults for audit/display purposes
+        // (Note: toolResults are ALSO saved to separate user messages for Claude API, but we attach
+        // them here so the HTTP response can include them for frontend display. They're stripped
+        // before being sent to the API anyway - see line 370)
         assistantMessage.setToolCalls(allToolCalls.isEmpty() ? null : allToolCalls);
-        // Don't save toolResults - they belong to user messages, not assistant messages
+        assistantMessage.setToolResults(allToolResults.isEmpty() ? null : allToolResults);
         assistantMessage.setInputTokens(llmResponse.getInputTokens());
         assistantMessage.setOutputTokens(llmResponse.getOutputTokens());
         assistantMessage.setTimestamp(System.currentTimeMillis());
@@ -776,7 +792,12 @@ public final class ConversationEndpoints {
 
     private static String sectionResponseStyle() {
         return "## Response Style\n" +
-            "Be clear and technical. Show your work by displaying tool executions in your responses.";
+            "Be clear and technical. Show your work by displaying tool executions in your responses.\n\n" +
+            "## Data Visualization\n" +
+            "When you query data (tag history, alarms, database tables), the UI automatically renders interactive charts and tables. " +
+            "DO NOT create ASCII charts, text-based visualizations, or markdown tables in your response. " +
+            "Simply describe what you found and what it means - the chart will appear automatically for the user. " +
+            "Focus on insights, patterns, and recommendations rather than trying to visualize the data yourself.";
     }
 
     /**

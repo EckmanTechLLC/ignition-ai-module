@@ -50,7 +50,7 @@ public class CreateScheduledTaskTool implements IAITool {
         return "Create a scheduled task that executes an AI prompt on a recurring schedule. " +
                "Use this when the user asks to automate queries or create recurring tasks. " +
                "Supports cron expressions for flexible scheduling (e.g., '*/5 * * * *' for every 5 minutes, '0 6 * * *' for daily at 6 AM). " +
-               "Results can be stored in a new conversation each time or appended to an existing conversation.";
+               "Each task execution creates a new isolated conversation to prevent token limit issues.";
     }
 
     @Override
@@ -81,21 +81,7 @@ public class CreateScheduledTaskTool implements IAITool {
         cronExpression.addProperty("description", "Cron expression (5 fields: minute hour day month weekday). Examples: '*/5 * * * *' (every 5 min), '0 6 * * *' (daily 6 AM), '0 9 * * 1-5' (weekdays 9 AM)");
         properties.add("cronExpression", cronExpression);
 
-        // resultStorage
-        JsonObject resultStorage = new JsonObject();
-        resultStorage.addProperty("type", "string");
-        resultStorage.addProperty("description", "How to store results: 'NEW_CONVERSATION' (create new conversation each run) or 'APPEND_CONVERSATION' (append to existing conversation)");
-        JsonArray storageEnum = new JsonArray();
-        storageEnum.add("NEW_CONVERSATION");
-        storageEnum.add("APPEND_CONVERSATION");
-        resultStorage.add("enum", storageEnum);
-        properties.add("resultStorage", resultStorage);
-
-        // conversationId (optional, required if resultStorage is APPEND_CONVERSATION)
-        JsonObject conversationId = new JsonObject();
-        conversationId.addProperty("type", "string");
-        conversationId.addProperty("description", "Conversation ID to append to (required if resultStorage is APPEND_CONVERSATION, otherwise leave empty)");
-        properties.add("conversationId", conversationId);
+        // Note: resultStorage removed - tasks always create new conversations (prevents token limit issues)
 
         schema.add("properties", properties);
 
@@ -104,7 +90,6 @@ public class CreateScheduledTaskTool implements IAITool {
         required.add("taskDescription");
         required.add("prompt");
         required.add("cronExpression");
-        required.add("resultStorage");
         schema.add("required", required);
 
         return schema;
@@ -119,22 +104,10 @@ public class CreateScheduledTaskTool implements IAITool {
         String taskDescription = params.get("taskDescription").getAsString();
         String prompt = params.get("prompt").getAsString();
         String cronExpression = params.get("cronExpression").getAsString();
-        String resultStorage = params.get("resultStorage").getAsString();
-        String conversationId = params.has("conversationId") && !params.get("conversationId").isJsonNull() ? params.get("conversationId").getAsString() : null;
 
         // Validate context
         if (projectName == null || projectName.isEmpty()) {
             throw new IllegalStateException("Project name not available from conversation context");
-        }
-
-        // Validate resultStorage
-        if (!resultStorage.equals("NEW_CONVERSATION") && !resultStorage.equals("APPEND_CONVERSATION")) {
-            throw new IllegalArgumentException("resultStorage must be 'NEW_CONVERSATION' or 'APPEND_CONVERSATION'");
-        }
-
-        // Validate conversationId if APPEND_CONVERSATION
-        if (resultStorage.equals("APPEND_CONVERSATION") && (conversationId == null || conversationId.isEmpty())) {
-            throw new IllegalArgumentException("conversationId is required when resultStorage is APPEND_CONVERSATION");
         }
 
         logger.info("Creating scheduled task: " + taskDescription);
@@ -158,13 +131,13 @@ public class CreateScheduledTaskTool implements IAITool {
         task.setUserName(userName);
         task.setProjectName(projectName);
         task.setTaskDescription(taskDescription);
-        task.setConversationId(conversationId);
+        task.setConversationId(null); // Not used - tasks always create new conversations
         task.setPrompt(prompt);
         task.setCronExpression(cronExpression);
         task.setLastRunAt(null);
         task.setNextRunAt(nextRunAt);
         task.setStatus("PENDING");
-        task.setResultStorage(resultStorage);
+        task.setResultStorage("NEW_CONVERSATION"); // Always create new conversation per execution
         task.setCreatedAt(System.currentTimeMillis());
         task.setEnabled(true);
 

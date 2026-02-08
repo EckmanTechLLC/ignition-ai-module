@@ -230,39 +230,16 @@ public class TaskSchedulerService {
         try {
             String dbConnection = settings.getDatabaseConnection();
 
-            // Create or use existing conversation
-            Conversation conversation;
-            if ("NEW_CONVERSATION".equals(task.getResultStorage())) {
-                // Create new conversation for each execution
-                conversation = new Conversation();
-                conversation.setId(UUID.randomUUID().toString());
-                conversation.setUserName(task.getUserName());
-                conversation.setProjectName(task.getProjectName());
-                conversation.setTitle("[Task] " + task.getTaskDescription());
-                conversation.setCreatedAt(startTime);
-                conversation.setLastUpdatedAt(startTime);
+            // Always create new conversation for each task execution (prevents token limit issues)
+            Conversation conversation = new Conversation();
+            conversation.setId(UUID.randomUUID().toString());
+            conversation.setUserName(task.getUserName());
+            conversation.setProjectName(task.getProjectName());
+            conversation.setTitle("[Task] " + task.getTaskDescription());
+            conversation.setCreatedAt(startTime);
+            conversation.setLastUpdatedAt(startTime);
 
-                ConversationDAO.create(gatewayContext.getDatasourceManager(), dbConnection, conversation);
-
-            } else if ("APPEND_CONVERSATION".equals(task.getResultStorage()) && task.getConversationId() != null) {
-                // Append to existing conversation
-                conversation = ConversationDAO.findById(
-                    gatewayContext.getDatasourceManager(),
-                    dbConnection,
-                    task.getConversationId()
-                );
-
-                if (conversation == null) {
-                    throw new IllegalStateException("Conversation not found: " + task.getConversationId());
-                }
-
-                // Update last updated time
-                conversation.setLastUpdatedAt(startTime);
-                ConversationDAO.update(gatewayContext.getDatasourceManager(), dbConnection, conversation);
-
-            } else {
-                throw new IllegalStateException("Invalid result storage mode: " + task.getResultStorage());
-            }
+            ConversationDAO.create(gatewayContext.getDatasourceManager(), dbConnection, conversation);
 
             execution.setConversationId(conversation.getId());
 

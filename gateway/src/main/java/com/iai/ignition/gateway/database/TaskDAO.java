@@ -57,6 +57,13 @@ public class TaskDAO {
                 stmt.setBoolean(13, task.isEnabled());
 
                 int rows = stmt.executeUpdate();
+
+                // Explicitly commit to ensure task is persisted before scheduling
+                // Prevents race condition where task executes before INSERT commits
+                if (!conn.getAutoCommit()) {
+                    conn.commit();
+                }
+
                 return rows > 0;
             }
         } catch (SQLException e) {

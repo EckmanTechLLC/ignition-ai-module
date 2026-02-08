@@ -46,6 +46,16 @@ const React = window.React;
     document.head.appendChild(script);
 })();
 
+// Load Chart.js for data visualization
+(function loadChartJS() {
+    if (window.Chart) return; // Already loaded
+
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
+    script.async = false;
+    document.head.appendChild(script);
+})();
+
 // Inject highlight.js CSS theme based on dark/light mode
 function injectHighlightTheme(isDark) {
     const themeId = 'hljs-theme';
@@ -297,7 +307,8 @@ class InsightChatComponent extends Component {
             tasks: [],
             taskPanelOpen: false,
             loadingTasks: false,
-            taskError: null
+            taskError: null,
+            activeCharts: {}
         };
         this.messagesEndRef = null;
         this.textareaRef = null;
@@ -412,6 +423,15 @@ class InsightChatComponent extends Component {
         if (this.taskRefreshInterval) {
             clearInterval(this.taskRefreshInterval);
         }
+
+        // Destroy all chart instances
+        if (this.state.activeCharts) {
+            Object.values(this.state.activeCharts).forEach(chart => {
+                if (chart && chart.destroy) {
+                    chart.destroy();
+                }
+            });
+        }
     }
 
     loadConversation(conversationId) {
@@ -523,6 +543,7 @@ class InsightChatComponent extends Component {
                         inputTokens: response.data.inputTokens,
                         outputTokens: response.data.outputTokens,
                         toolCalls: response.data.toolCalls,
+                        toolResults: response.data.toolResults,
                         timestamp: Date.now()
                     };
 
@@ -713,6 +734,383 @@ class InsightChatComponent extends Component {
         return date.toLocaleTimeString();
     }
 
+    // ===== Phase 4: Enhanced Tool Result Display =====
+
+    detectToolResultType(result) {
+        try {
+            const parsed = typeof result === 'string' ? JSON.parse(result) : result;
+
+            // BasicDataset format (from Ignition system functions) → convert to table
+            // Format: { columns: [{name, type}, ...], rows: [[val1, val2], ...], ... }
+            if (parsed && typeof parsed === 'object' && parsed.columns && parsed.rows && Array.isArray(parsed.columns) && Array.isArray(parsed.rows)) {
+                // Convert to array of objects for table rendering
+                const columnNames = parsed.columns.map(col => col.name || col);
+                const tableData = parsed.rows.map(row => {
+                    const obj = {};
+                    columnNames.forEach((colName, i) => {
+                        obj[colName] = row[i];
+                    });
+                    return obj;
+                });
+                return { type: 'table', data: tableData };
+            }
+
+            // Array of objects → table
+            if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === 'object') {
+                return { type: 'table', data: parsed };
+            }
+
+            // Single object with < 10 keys → key-value
+            if (typeof parsed === 'object' && !Array.isArray(parsed)) {
+                const keys = Object.keys(parsed);
+                if (keys.length < 10) {
+                    return { type: 'keyvalue', data: parsed };
+                }
+                // Large object → JSON tree
+                return { type: 'json', data: parsed };
+            }
+
+            // Fallback to raw text
+            return { type: 'text', data: result };
+        } catch (e) {
+            return { type: 'text', data: result };
+        }
+    }
+
+    renderToolResultTable(data, isDark, index) {
+        const headers = Object.keys(data[0]);
+
+        const tableContainerStyle = {
+            marginTop: '8px',
+            overflowX: 'auto',
+            maxHeight: '400px',
+            overflowY: 'auto'
+        };
+
+        const tableStyle = {
+            width: '100%',
+            borderCollapse: 'collapse',
+            fontSize: '0.8125rem',
+            fontFamily: 'monospace'
+        };
+
+        const thStyle = {
+            backgroundColor: isDark ? '#555' : '#e0e0e0',
+            color: isDark ? '#fff' : '#000',
+            padding: '6px',
+            textAlign: 'left',
+            borderBottom: `1px solid ${isDark ? '#666' : '#ccc'}`,
+            fontWeight: 'bold',
+            position: 'sticky',
+            top: 0
+        };
+
+        const tdStyle = {
+            padding: '6px',
+            borderBottom: `1px solid ${isDark ? '#555' : '#e8e8e8'}`,
+            color: isDark ? '#ddd' : '#333'
+        };
+
+        const exportButtonStyle = {
+            marginTop: '8px',
+            padding: '4px 8px',
+            fontSize: '0.75rem',
+            border: 'none',
+            borderRadius: '3px',
+            cursor: 'pointer',
+            backgroundColor: isDark ? '#555' : '#e0e0e0',
+            color: isDark ? '#fff' : '#000'
+        };
+
+        return React.createElement('div', { key: 'table-container', style: tableContainerStyle }, [
+            React.createElement('table', { key: 'table', style: tableStyle }, [
+                React.createElement('thead', { key: 'thead' }, [
+                    React.createElement('tr', { key: 'tr' },
+                        headers.map(h => React.createElement('th', { key: h, style: thStyle }, h))
+                    )
+                ]),
+                React.createElement('tbody', { key: 'tbody' },
+                    data.slice(0, 100).map((row, i) =>
+                        React.createElement('tr', { key: i },
+                            headers.map(h => React.createElement('td', { key: h, style: tdStyle }, String(row[h] || '')))
+                        )
+                    )
+                )
+            ]),
+            data.length > 100 && React.createElement('div', {
+                key: 'truncated',
+                style: { marginTop: '4px', fontSize: '0.75rem', color: isDark ? '#aaa' : '#666', fontStyle: 'italic' }
+            }, `Showing first 100 of ${data.length} rows`),
+            React.createElement('button', {
+                key: 'export',
+                style: exportButtonStyle,
+                onClick: () => this.exportTableAsCSV(data, headers)
+            }, '📥 Export CSV')
+        ]);
+    }
+
+    renderToolResultKeyValue(data, isDark) {
+        const kvContainerStyle = {
+            marginTop: '8px',
+            fontFamily: 'monospace',
+            fontSize: '0.8125rem'
+        };
+
+        const kvRowStyle = {
+            marginBottom: '4px',
+            display: 'flex',
+            gap: '8px'
+        };
+
+        const kvKeyStyle = {
+            fontWeight: 'bold',
+            color: isDark ? '#aaa' : '#666',
+            minWidth: '120px'
+        };
+
+        const kvValueStyle = {
+            color: isDark ? '#ddd' : '#333'
+        };
+
+        return React.createElement('div', { key: 'keyvalue', style: kvContainerStyle },
+            Object.entries(data).map(([key, value]) =>
+                React.createElement('div', { key, style: kvRowStyle }, [
+                    React.createElement('span', { key: 'key', style: kvKeyStyle }, `${key}:`),
+                    React.createElement('span', { key: 'value', style: kvValueStyle }, String(value))
+                ])
+            )
+        );
+    }
+
+    renderToolResultJSON(data, isDark) {
+        const jsonPreStyle = {
+            marginTop: '8px',
+            padding: '8px',
+            backgroundColor: isDark ? '#2a2a2a' : '#f5f5f5',
+            borderRadius: '4px',
+            fontSize: '0.75rem',
+            fontFamily: 'monospace',
+            overflow: 'auto',
+            maxHeight: '300px',
+            color: isDark ? '#ddd' : '#333'
+        };
+
+        return React.createElement('pre', {
+            key: 'json',
+            style: jsonPreStyle
+        }, JSON.stringify(data, null, 2));
+    }
+
+    exportTableAsCSV(data, headers) {
+        const escapeCSV = (value) => {
+            const str = String(value || '');
+            if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+                return '"' + str.replace(/"/g, '""') + '"';
+            }
+            return str;
+        };
+
+        const csv = [
+            headers.map(escapeCSV).join(','),
+            ...data.map(row => headers.map(h => escapeCSV(row[h])).join(','))
+        ].join('\n');
+
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `table-export-${Date.now()}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    // ===== Phase 5: Charts =====
+
+    detectChartableData(data) {
+        if (!Array.isArray(data) || data.length === 0) return null;
+
+        const first = data[0];
+        if (typeof first !== 'object') return null;
+
+        const keys = Object.keys(first);
+
+        // Time-series data (has timestamp/date + numeric value)
+        // Match: timestamp, t_stamp, date, datetime, time, etc.
+        const timeKey = keys.find(k => k.match(/time|date|stamp/i));
+        const valueKeys = keys.filter(k => typeof first[k] === 'number');
+
+        if (timeKey && valueKeys.length > 0) {
+            return { type: 'line', data, timeKey, valueKeys };
+        }
+
+        // Categorical data (string key + numeric value)
+        if (keys.length === 2) {
+            const stringKey = keys.find(k => typeof first[k] === 'string');
+            const numericKey = keys.find(k => typeof first[k] === 'number');
+            if (stringKey && numericKey) {
+                return { type: 'bar', data, labelKey: stringKey, valueKey: numericKey };
+            }
+        }
+
+        return null;
+    }
+
+    renderChart(chartInfo, isDark, messageIndex, toolIndex) {
+        const canvasId = `chart-${messageIndex}-${toolIndex}-${Date.now()}`;
+
+        const chartContainerStyle = {
+            marginTop: '8px',
+            padding: '12px',
+            backgroundColor: isDark ? '#2a2a2a' : '#f9f9f9',
+            borderRadius: '4px',
+            position: 'relative'
+        };
+
+        const canvasStyle = {
+            maxHeight: '300px'
+        };
+
+        const exportButtonStyle = {
+            marginTop: '8px',
+            padding: '4px 8px',
+            fontSize: '0.75rem',
+            border: 'none',
+            borderRadius: '3px',
+            cursor: 'pointer',
+            backgroundColor: isDark ? '#555' : '#e0e0e0',
+            color: isDark ? '#fff' : '#000'
+        };
+
+        return React.createElement('div', {
+            key: 'chart-container',
+            style: chartContainerStyle,
+            ref: (el) => {
+                if (el && window.Chart) {
+                    const canvas = el.querySelector('canvas');
+                    if (canvas) {
+                        // Check if chart already exists on this canvas (prevents re-creation on re-render)
+                        const existingChart = window.Chart.getChart(canvas);
+                        if (existingChart) {
+                            return; // Chart already exists, don't recreate
+                        }
+
+                        // Create new chart
+                        const ctx = canvas.getContext('2d');
+                        const chartData = this.prepareChartData(chartInfo, isDark);
+                        const chart = new window.Chart(ctx, {
+                            type: chartInfo.type,
+                            data: chartData,
+                            options: this.getChartOptions(chartInfo.type, isDark)
+                        });
+
+                        this.setState(prevState => ({
+                            activeCharts: { ...prevState.activeCharts, [canvasId]: chart }
+                        }));
+                    }
+                }
+            }
+        }, [
+            React.createElement('canvas', { key: 'canvas', id: canvasId, style: canvasStyle }),
+            React.createElement('button', {
+                key: 'export',
+                style: exportButtonStyle,
+                onClick: () => this.exportChartAsPNG(canvasId)
+            }, '📥 Export PNG')
+        ]);
+    }
+
+    prepareChartData(chartInfo, isDark) {
+        const { type, data } = chartInfo;
+
+        if (type === 'line') {
+            const { timeKey, valueKeys } = chartInfo;
+            const labels = data.map(row => {
+                const val = row[timeKey];
+                return val instanceof Date ? val.toLocaleString() : String(val);
+            });
+
+            const datasets = valueKeys.map((key, i) => {
+                const colors = ['#4bc0c0', '#ff6384', '#36a2eb', '#ffcd56', '#9966ff'];
+                const color = colors[i % colors.length];
+                return {
+                    label: key,
+                    data: data.map(row => row[key]),
+                    borderColor: color,
+                    backgroundColor: color + '33',
+                    tension: 0.1
+                };
+            });
+
+            return { labels, datasets };
+        }
+
+        if (type === 'bar') {
+            const { labelKey, valueKey } = chartInfo;
+            const labels = data.map(row => String(row[labelKey]));
+            const values = data.map(row => row[valueKey]);
+
+            return {
+                labels,
+                datasets: [{
+                    label: valueKey,
+                    data: values,
+                    backgroundColor: isDark ? '#4bc0c0' : '#36a2eb',
+                    borderColor: isDark ? '#4bc0c0' : '#36a2eb',
+                    borderWidth: 1
+                }]
+            };
+        }
+
+        return { labels: [], datasets: [] };
+    }
+
+    getChartOptions(chartType, isDark) {
+        const textColor = isDark ? '#ddd' : '#333';
+        const gridColor = isDark ? '#444' : '#e0e0e0';
+
+        return {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    labels: { color: textColor }
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false
+                }
+            },
+            scales: {
+                x: {
+                    ticks: { color: textColor },
+                    grid: { color: gridColor }
+                },
+                y: {
+                    ticks: { color: textColor },
+                    grid: { color: gridColor }
+                }
+            }
+        };
+    }
+
+    exportChartAsPNG(canvasId) {
+        const canvas = document.getElementById(canvasId);
+        if (canvas) {
+            canvas.toBlob(blob => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `chart-export-${Date.now()}.png`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            });
+        }
+    }
+
     renderMessage(message, index) {
         const { showTimestamps, showToolDetails, showTokenUsage, theme } = this.props.props;
         const isDark = theme === 'dark';
@@ -770,9 +1168,46 @@ class InsightChatComponent extends Component {
             }, contentElements)
         );
 
-        // Tool calls (if any)
+        // Inline charts (Phase 5 - Option B: show charts prominently, not hidden in tool details)
+        if (message.toolResults && message.toolResults.length > 0) {
+            const chartElements = [];
+            message.toolResults.forEach((toolResult, i) => {
+                if (toolResult.content) {
+                    try {
+                        const resultInfo = this.detectToolResultType(toolResult.content);
+                        if (resultInfo.type === 'table') {
+                            const chartInfo = this.detectChartableData(resultInfo.data);
+                            if (chartInfo) {
+                                // Render chart inline (visible by default)
+                                chartElements.push(this.renderChart(chartInfo, isDark, index, i));
+                            }
+                        }
+                    } catch (e) {
+                        // Skip if detection fails
+                    }
+                }
+            });
+
+            if (chartElements.length > 0) {
+                elements.push(
+                    React.createElement('div', {
+                        key: 'inline-charts',
+                        style: { marginTop: '12px' }
+                    }, chartElements)
+                );
+            }
+        }
+
+        // Tool calls with enhanced result display (if any)
         if (showToolDetails && message.toolCalls && message.toolCalls.length > 0) {
             const isExpanded = this.state.expandedTools[index];
+            const toolResults = message.toolResults || [];
+
+            // Build map of toolCallId -> result content
+            const resultsMap = {};
+            toolResults.forEach(tr => {
+                resultsMap[tr.toolCallId] = tr;
+            });
 
             elements.push(
                 React.createElement('div', {
@@ -792,13 +1227,59 @@ class InsightChatComponent extends Component {
                     }, `🔧 ${message.toolCalls.length} tool${message.toolCalls.length > 1 ? 's' : ''} used ${isExpanded ? '▼' : '▶'}`),
                     isExpanded && React.createElement('div', {
                         key: 'tools-list',
-                        style: { marginTop: '8px', fontFamily: 'monospace', fontSize: '0.8125rem' }
-                    }, message.toolCalls.map((tool, i) =>
-                        React.createElement('div', {
+                        style: { marginTop: '8px' }
+                    }, message.toolCalls.map((tool, i) => {
+                        const toolResult = resultsMap[tool.id];
+                        const resultContent = toolResult ? toolResult.content : null;
+
+                        const toolItemElements = [
+                            React.createElement('div', {
+                                key: 'name',
+                                style: {
+                                    fontFamily: 'monospace',
+                                    fontSize: '0.8125rem',
+                                    fontWeight: 'bold',
+                                    marginBottom: '4px'
+                                }
+                            }, `• ${tool.name}`)
+                        ];
+
+                        // Render result if available (no charts here - they're shown inline above)
+                        if (resultContent) {
+                            // Detect result type and render accordingly
+                            const resultInfo = this.detectToolResultType(resultContent);
+
+                            // Render tables, key-value, JSON, or text (no charts in tool details)
+                            if (resultInfo.type === 'table') {
+                                toolItemElements.push(this.renderToolResultTable(resultInfo.data, isDark, i));
+                            } else if (resultInfo.type === 'keyvalue') {
+                                toolItemElements.push(this.renderToolResultKeyValue(resultInfo.data, isDark));
+                            } else if (resultInfo.type === 'json') {
+                                toolItemElements.push(this.renderToolResultJSON(resultInfo.data, isDark));
+                            } else {
+                                // Plain text fallback
+                                toolItemElements.push(
+                                    React.createElement('pre', {
+                                        key: 'result-text',
+                                        style: {
+                                            marginTop: '4px',
+                                            fontSize: '0.75rem',
+                                            fontFamily: 'monospace',
+                                            whiteSpace: 'pre-wrap',
+                                            color: isDark ? '#ccc' : '#555',
+                                            maxHeight: '200px',
+                                            overflow: 'auto'
+                                        }
+                                    }, String(resultInfo.data).substring(0, 500))
+                                );
+                            }
+                        }
+
+                        return React.createElement('div', {
                             key: i,
-                            style: { marginBottom: '4px' }
-                        }, `• ${tool.name}`)
-                    ))
+                            style: { marginBottom: '12px' }
+                        }, toolItemElements);
+                    }))
                 ])
             );
         }
